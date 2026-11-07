@@ -9,8 +9,9 @@ const base = {
   maxVehicleAge: 15,
   maxSumInsured: 500000,
   minPremium: 60,
-  ehailing: true,
+  ehailing: { periods: ['annual', '6m', '3m', '1m'] },
   excess: 0,
+  validDays: 14,
 };
 
 export const PROVIDERS = [
@@ -42,7 +43,8 @@ export const PROVIDERS = [
     agreedValueLoading: 1.0,
     commissionRate: 0.10,
     maxVehicleAge: 20,
-    benefits: ['Agreed value at no extra charge', 'Nationwide panel workshops'],
+    ehailing: { periods: ['annual'] },
+    benefits: ['Agreed value at no extra charge', 'Nationwide panel workshops', 'E-hailing: annual only'],
   },
   {
     ...base,
@@ -58,6 +60,7 @@ export const PROVIDERS = [
     agreedValueLoading: 1.03,
     commissionRate: 0.10,
     ehailing: false,
+    validDays: 30,
     benefits: ['Surplus sharing (cash back) if no claims', 'Shariah-compliant'],
   },
   {
@@ -94,4 +97,30 @@ export const PROVIDERS = [
     addonFactor: { specialPerils: 0.8, srcc: 0.8 },
     benefits: ['Accepts older cars', 'Cheaper flood cover'],
   },
+];
+
+// Your panel insurers, with what we know about each portal. Each one is
+// switched off until its RPA bot is written (providers/rpa/bots/<id>.js).
+// Set enabled: true once the bot passes against the live portal.
+//   login: 'otp'              portal sends a one-time code at login; staff are asked for it
+//   login: 'password-change'  portal forces a new password; the bot sets one and saves it
+//   splash: true              a notice pops up after login; the bot closes it
+export const PANEL = [
+  { id: 'allianz', name: 'Allianz General Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'allianz' }, enabled: false,
+    ehailing: { periods: ['annual'] }, addonFixed: { allDrivers: 50 }, validDays: 30,
+    notes: 'Agreed value with recommended sum insured range. All drivers RM50.' },
+  { id: 'generali', name: 'Generali Insurance Malaysia', kind: 'conventional', mode: 'rpa', rpa: { bot: 'generali' }, enabled: false,
+    ehailing: { periods: ['annual'], fixed: 1950 }, validDays: 30,
+    notes: 'E-hailing annual only, fixed RM1,950. ISM-ABI agreed value.' },
+  { id: 'zurich', name: 'Zurich General Takaful', kind: 'takaful', mode: 'rpa', rpa: { bot: 'zurich' }, enabled: false,
+    login: 'otp', validDays: 30, notes: 'OTP at login. Slip shows price at every NCD level.' },
+  { id: 'etiqa', name: 'Etiqa General Takaful', kind: 'takaful', mode: 'rpa', rpa: { bot: 'etiqa' }, enabled: false,
+    login: 'password-change', splash: true, validDays: 90, notes: 'Splash screen after login; forces a password change.' },
+  { id: 'bsompo', name: 'Berjaya Sompo Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'bsompo' }, enabled: false, validDays: 30 },
+  { id: 'stm', name: 'Takaful Malaysia', kind: 'takaful', mode: 'rpa', rpa: { bot: 'stm' }, enabled: false, validDays: 8,
+    notes: 'Some quotes come back REFERRED to the motor underwriter.' },
+  { id: 'ikhlas', name: 'Takaful Ikhlas General', kind: 'takaful', mode: 'rpa', rpa: { bot: 'ikhlas' }, enabled: false },
+  { id: 'po', name: 'Pacific & Orient Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'po' }, enabled: false, validDays: 14 },
+  { id: 'msig', name: 'MSIG Insurance (Malaysia)', kind: 'conventional', mode: 'rpa', rpa: { bot: 'msig' }, enabled: false, validDays: 29 },
+  { id: 'liberty', name: 'Liberty General Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'liberty' }, enabled: false, validDays: 15 },
 ];

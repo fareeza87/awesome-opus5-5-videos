@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { compareStream } from '../public/engine/compare.js';
 import { demoLookup } from '../public/engine/lookup.js';
 import { rateQuote } from '../public/engine/rate.js';
@@ -41,7 +44,7 @@ try { createRequire(import.meta.url)('playwright'); } catch { hasPlaywright = fa
 
 test('RPA bot logs in to the practice portal, looks up and quotes', { skip: !hasPlaywright && 'Playwright not installed', timeout: 60000 }, async () => {
   const port = 3900 + Math.floor(Math.random() * 90);
-  const srv = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), RPA_DEMO: '1' }, stdio: 'pipe' });
+  const srv = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), RPA_DEMO: '1', OTP_TIMEOUT_MS: '1500', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'vault-')) }, stdio: 'pipe' });
   try {
     await new Promise((res) => srv.stdout.on('data', (d) => String(d).includes('portal on') && res()));
     const res = await fetch(`http://localhost:${port}/api/quotes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(minimal) });

@@ -45,6 +45,12 @@ for (const [key, a] of Object.entries(ADDONS)) {
     `<label class="chip"><input type="checkbox" name="addon" value="${key}" ${DEFAULT_ON.includes(key) ? 'checked' : ''}><span>${esc(a.label)}</span></label>`);
 }
 
+// The e-hailing period picker only matters when e-hailing is ticked.
+const ehBox = form.querySelector('input[name=addon][value=ehailing]');
+const showEh = () => { $('#ehWrap').hidden = !ehBox.checked; };
+ehBox.addEventListener('change', showEh);
+form.addEventListener('reset', () => setTimeout(showEh));
+
 const ID_LABELS = { nric: ['NRIC no.', '900101-14-5678'], passport: ['Passport no.', 'A12345678'], company: ['Company reg. no.', '202301012345'] };
 form.idType.addEventListener('change', () => {
   const [label, ph] = ID_LABELS[form.idType.value];
@@ -106,6 +112,7 @@ function readForm() {
       ncd: f.ncd.value === '' ? '' : Number(f.ncd.value),
       windscreenSI: num(f.windscreenSI) || 0,
       namedDrivers: num(f.namedDrivers) || 0,
+      ehailingPeriod: f.ehailingPeriod.value,
       addons,
     },
   };
@@ -174,8 +181,8 @@ async function streamQuotes(req, onEvent) {
 // Live view while bots are working.
 function startLive(request) {
   const t0 = Date.now();
-  const state = { request, lookup: null, providers: [], results: new Map() };
-  $('#results').innerHTML = `<div class="card summary live" id="live-head"></div><div class="offers" id="live-offers"></div>`;
+  const state = { request, lookup: null, providers: [], results: new Map(), otpFor: new Map() };
+  $('#results').innerHTML = `<div class="card summary live" id="live-head"></div><div id="live-otp"></div><div class="offers" id="live-offers"></div>`;
   const tick = setInterval(drawHead, 200);
 
   function drawHead() {
@@ -200,7 +207,7 @@ function startLive(request) {
     const waiting = state.providers.filter((p) => !state.results.has(p.id));
     $('#live-offers').innerHTML = answered.map((o, i) => offerCard(o, i, false)).join('')
       + waiting.map((p) => `<article class="offer card pending"><header><h3>${esc(p.name)}</h3>${kindTag(p.kind)}</header>
-          <p class="muted">${p.mode === 'rpa' || p.mode === 'webhook' ? 'Bot filling insurer portal…' : 'Waiting for insurer…'}</p><div class="bar"></div></article>`).join('');
+          <p class="muted">${state.otpFor.has(p.id) ? 'Waiting for OTP ↑' : p.mode === 'rpa' || p.mode === 'webhook' ? 'Bot filling insurer portal…' : 'Waiting for insurer…'}</p><div class="bar"></div></article>`).join('');
   }
   drawHead();
   return {
@@ -214,9 +221,40 @@ function startLive(request) {
       if (ev.type === 'start') { state.providers = ev.providers; drawOffers(); }
       if (ev.type === 'quote') { state.results.set(ev.result.providerId, ev.result); drawOffers(); }
       if (ev.type === 'error') { $('#errors').textContent = ev.errors.join(' · '); $('#results').innerHTML = ''; clearInterval(tick); }
+      if (ev.type === 'otp') { state.otpFor.set(ev.otp.providerId, ev.otp.id); showOtp(ev.otp); drawOffers(); }
+      if (ev.type === 'otp-done') {
+        for (const [k, v] of state.otpFor) if (v === ev.id) state.otpFor.delete(k);
+        document.querySelector(`[data-otp="${CSS.escape(ev.id)}"]`)?.remove();
+        drawOffers();
+      }
       drawHead();
     },
   };
+}
+
+// A portal is waiting for a one-time code (e.g. Zurich). Staff type it here.
+function showOtp(otp) {
+  const box = $('#live-otp');
+  if (!box || box.querySelector(`[data-otp="${CSS.escape(otp.id)}"]`)) return;
+  box.insertAdjacentHTML('beforeend', `
+    <form class="card otp" data-otp="${esc(otp.id)}">
+      <div><b>${esc(otp.provider)} needs an OTP</b><p class="muted">${esc(otp.prompt)}</p></div>
+      <input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="000000" aria-label="OTP for ${esc(otp.provider)}" required>
+      <button class="primary">Send code</button>
+      <span class="otp-msg muted"></span>
+    </form>`);
+  const form = box.querySelector(`[data-otp="${CSS.escape(otp.id)}"]`);
+  form.code.focus();
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = form.querySelector('.otp-msg');
+    msg.textContent = 'Sending…';
+    try {
+      const r = await fetch(`api/otp/${otp.id}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code: form.code.value }) });
+      const j = await r.json();
+      msg.textContent = r.ok ? 'Sent. Bot is logging in…' : j.error;
+    } catch { msg.textContent = 'Could not reach the server'; }
+  });
 }
 
 function kindTag(kind) {
@@ -280,6 +318,8 @@ function offerCard(o, i, selectable) {
     </header>
     <div class="price">${rm(o.total)}<small>total payable${o.mode !== 'demo' || o.ms >= 300 ? ` · ${(o.ms / 1000).toFixed(1)}s` : ''}${o.mode === 'rpa' || o.mode === 'webhook' ? ' · live portal' : ''}</small></div>
     ${o.siNote ? `<p class="warn">${esc(o.siNote)}</p>` : ''}
+    ${(o.notes || []).map((n) => `<p class="warn">${esc(n)}</p>`).join('')}
+    ${o.referred ? '<p class="warn">Referred to the insurer\'s underwriter: price is subject to approval.</p>' : ''}
     <dl>
       <dt>Basic premium</dt><dd>${rm(o.basic)}</dd>
       <dt>NCD ${o.ncdPercent ?? ''}%</dt><dd>− ${rm(o.ncdAmount)}</dd>
@@ -392,6 +432,6 @@ function fillForm({ owner, vehicle, cover }, { onlyEmpty = false } = {}) {
   };
   Object.entries(owner).forEach(([k, v]) => set(k, v));
   Object.entries(vehicle).forEach(([k, v]) => set(k, v));
-  ['coverType', 'sumInsured', 'valueBasis', 'ncd', 'windscreenSI', 'namedDrivers'].forEach((k) => set(k, cover[k]));
-  if (!onlyEmpty) form.querySelectorAll('input[name=addon]').forEach((c) => { c.checked = !!cover.addons[c.value]; });
+  ['coverType', 'sumInsured', 'valueBasis', 'ncd', 'windscreenSI', 'namedDrivers', 'ehailingPeriod'].forEach((k) => set(k, cover[k]));
+  if (!onlyEmpty) { form.querySelectorAll('input[name=addon]').forEach((c) => { c.checked = !!cover.addons[c.value]; }); showEh(); }
 }

@@ -47,6 +47,15 @@
       </div>
       <h3>Add-ons</h3>
       <div class="chips" id="addons"></div>
+      <div class="grid" id="ehWrap" hidden>
+        <label>E-hailing period
+          <select name="ehailingPeriod" id="ehailingPeriod">
+            <option value="annual">Annual</option><option value="6m">6 months</option>
+            <option value="3m">3 months</option><option value="1m">1 month</option>
+          </select>
+        </label>
+        <p class="muted small" style="align-self:end">Insurers that sell annual only (e.g. Allianz, Generali) are quoted annual and flagged.</p>
+      </div>
 
       <details id="vehDetails">
         <summary>Vehicle, NCD &amp; sum insured <span class="muted" id="vehHint">· auto from ISM lookup</span></summary>

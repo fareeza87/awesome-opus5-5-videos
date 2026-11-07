@@ -5,11 +5,52 @@
 const money = (s) => Number(String(s).replace(/[^\d.]/g, ''));
 
 export default {
-  async login(page, { url, user, pass }) {
-    await page.goto(`${url}/login`);
-    await page.fill('#username', user);
-    await page.fill('#password', pass);
-    await Promise.all([page.waitForURL(/\/quote/), page.click('#btnLogin')]);
+  // ctx: url, user, pass, askOtp(prompt), changePassword(apply)
+  async login(page, ctx) {
+    await page.goto(`${ctx.url}/login`);
+    await page.fill('#username', ctx.user);
+    await page.fill('#password', ctx.pass);
+    await page.click('#btnLogin');
+    await page.waitForLoadState();
+    if (await page.locator('#loginError').count()) throw new Error('Portal rejected the password');
+
+    // Handle whatever the portal asks for next, in any order.
+    for (let step = 0; step < 5; step++) {
+      if (await page.locator('#otp').count()) {
+        const code = await ctx.askOtp('Enter the 6-digit OTP sent to the agency phone');
+        await page.fill('#otp', code);
+        await page.click('#btnVerify');
+        await page.waitForLoadState();
+        if (await page.locator('#otpError').count()) throw new Error('Portal rejected the OTP');
+        continue;
+      }
+      if (await page.locator('#newPassword').count()) {
+        await ctx.changePassword(async (oldPass, newPass) => {
+          await page.fill('#oldPassword', oldPass);
+          await page.fill('#newPassword', newPass);
+          await page.fill('#confirmPassword', newPass);
+          await page.click('#btnChangePassword');
+          await page.waitForLoadState();
+          const err = page.locator('#pwError');
+          if (await err.count()) throw new Error(`Password change refused: ${await err.textContent()}`);
+        });
+        continue;
+      }
+      break;
+    }
+    if (!/\/(quote|home)/.test(page.url())) throw new Error(`Login did not finish (stuck at ${page.url()})`);
+  },
+
+  // Close any notice that pops up over the page (Etiqa-style splash).
+  async closeSplash(page) {
+    const close = page.locator('#btnCloseSplash');
+    if (await close.count()) await close.click();
+  },
+
+  // Light activity so the portal doesn't log us out (avoids repeat OTPs).
+  async keepAlive(page, { url }) {
+    await page.goto(`${url}/home`);
+    if (await this.isLoginPage(page)) throw new Error('Session expired');
   },
 
   async isLoginPage(page) {
@@ -19,6 +60,7 @@ export default {
   // IC + plate → vehicle, NCD and the portal's recommended sum insured.
   async lookup(page, req, { url }) {
     await page.goto(`${url}/quote`);
+    await this.closeSplash(page);
     await page.fill('#idNo', req.owner.nric);
     await page.fill('#vehRegNo', req.vehicle.regNo);
     await page.fill('#postcode', req.owner.postcode);

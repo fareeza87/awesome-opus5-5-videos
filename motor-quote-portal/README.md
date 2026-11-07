@@ -38,7 +38,7 @@ npm run demo:rpa     # adds a live RPA bot against the practice portal
 npm test             # engine, lookup flow and RPA bot tests
 ```
 
-`npm run demo:rpa` starts a **practice insurer portal** at `/mock-portal` (user `agent01`, password `demo123`). It behaves like a real agent portal: login, ISM enquiry, sum insured range, calculate. A real bot logs in and quotes on it, so you can see the full RPA flow without touching a real insurer. Set `RPA_HEADED=1` to watch the browser.
+`npm run demo:rpa` starts a **practice insurer portal** in three styles: `/mock-portal/basic`, `/mock-portal/otp` (sends a 6-digit OTP after the password, like Zurich; the code is printed in the server log), and `/mock-portal/etiqa` (forces a password change at every login, then shows a splash notice, like Etiqa). Each behaves like a real agent portal: login, ISM enquiry, sum insured range, calculate. A real bot logs in and quotes on it, so you can see the full RPA flow without touching a real insurer. Set `RPA_HEADED=1` to watch the browser.
 
 If you open `public/index.html` without the server, it runs in **demo mode**: quotes are priced in the browser and history stays in that browser.
 
@@ -76,10 +76,52 @@ Mark **one** insurer `lookupSource: true`. Its portal does the IC + plate enquir
 
 When a bot fails, the insurer's card shows the reason, and a screenshot of the portal at that moment is saved in `data/rpa-errors/` so the selector can be fixed. The other insurers still return their prices.
 
+### Portals with OTP (e.g. Zurich)
+
+When a portal asks for a one-time code, the bot pauses and an **OTP box appears on the quote screen** of whoever is quoting. They type the code from the agency phone and the bot carries on. The bot then keeps that portal logged in with light activity every few minutes (`RPA_KEEPALIVE_MIN`, default 8), so staff are asked for an OTP rarely, usually once a day.
+
+To skip typing, install an SMS-forwarding app on the phone that receives the OTP and point it at:
+
+```
+POST https://<portal>/api/otp/inbound?token=<OTP_INBOUND_TOKEN>
+body: the SMS text (plain text, or JSON {"text": "..."})
+```
+
+The portal picks the code out of the message and passes it to the waiting insurer (matched by the insurer's name in the SMS). Set `OTP_INBOUND_TOKEN` to a long random value. Unanswered OTP requests expire after `OTP_TIMEOUT_MS` (default 3 minutes), and that insurer shows an error while the others still quote.
+
+### Portals that force a password change (e.g. Etiqa)
+
+When the portal demands a new password, the bot makes a strong one (14 characters with upper, lower, digit and symbol), **saves it encrypted before submitting it**, and marks it current once the portal accepts it. If the server stops halfway, the next login tries both the old and new password, so the login can't be lost. Splash notices are closed automatically (`closeSplash` in the bot).
+
+Passwords live in `data/vault.json`, encrypted with `VAULT_KEY`. Set `VAULT_KEY` on the server and keep a copy of it somewhere safe.
+
+```
+npm run vault -- list            which insurers have a saved password, and when it last changed
+npm run vault -- show etiqa      see the current password, to log in by hand
+npm run vault -- set etiqa       after resetting it through the registered email
+```
+
+### E-hailing
+
+Each insurer declares which e-hailing periods it sells, in `providers-config.js`:
+
+```js
+ehailing: { periods: ['annual'] }                 // Allianz: annual only
+ehailing: { periods: ['annual'], fixed: 1950 }    // Generali: annual only, fixed RM1,950
+ehailing: { periods: ['annual', '6m', '3m', '1m'] }
+ehailing: false                                   // not offered: insurer declines
+```
+
+Staff pick the period on the form. An insurer that only sells annual is quoted annual, and the card and quotation say so.
+
+### Your panel
+
+`PANEL` in `providers-config.js` lists your insurers (Allianz, Generali, Zurich Takaful, Etiqa Takaful, Berjaya Sompo, Takaful Malaysia, Takaful Ikhlas, P&O, MSIG, Liberty) with what we know from their quotation slips: validity days, e-hailing rules, OTP, password change, splash screen. Each is switched off until its bot is written and tested against the live portal.
+
 ### Things to check per insurer
 
 - **Permission:** confirm your agency agreement allows automated access to the portal, and use a dedicated agent login for the bot.
-- **OTP / captcha at login:** the bot can't type an OTP. Ask the insurer for an OTP-exempt login on a whitelisted IP, or use their API.
+- **Captcha at login:** a bot can't solve a captcha. Ask the insurer for a captcha-free agent login or whitelisted IP, or use their API.
 - **Portal changes:** when an insurer redesigns its portal, that bot needs new selectors. The error screenshots show where it broke.
 - **One login, one session:** each bot runs one quote at a time per insurer. For busy periods, ask the insurer for extra agent logins.
 

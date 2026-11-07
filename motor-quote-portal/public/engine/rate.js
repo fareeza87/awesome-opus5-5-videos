@@ -1,6 +1,6 @@
 // Turns one quote request into a priced quotation for one insurer profile.
 import {
-  ADDONS, NCD_STEPS, SST_RATE, STAMP_DUTY, ageFromNric, region, round2, tariffBasic,
+  ADDONS, EHAILING_PERIODS, NCD_STEPS, SST_RATE, STAMP_DUTY, ageFromNric, region, round2, tariffBasic,
 } from './tariff.js';
 
 // The minimum needed to look a vehicle up: who owns it, which plate, where.
@@ -38,7 +38,8 @@ export function rateQuote(req, profile, today = new Date()) {
   const declines = [];
   if (vehicleAge > profile.maxVehicleAge && coverType === 'comprehensive') declines.push(`Comprehensive not offered for cars older than ${profile.maxVehicleAge} years`);
   if (sumInsured > profile.maxSumInsured) declines.push(`Sum insured above RM${profile.maxSumInsured.toLocaleString()} needs referral`);
-  if (cover.addons?.ehailing && !profile.ehailing) declines.push('E-hailing extension not offered');
+  const eh = ehailingTerms(cover, profile);
+  if (eh?.declined) declines.push(eh.declined);
   if (declines.length) return { status: 'declined', reasons: declines };
 
   const tariff = tariffBasic({ coverType, cc: Number(vehicle.cc), sumInsured, postcode: owner.postcode });
@@ -59,18 +60,26 @@ export function rateQuote(req, profile, today = new Date()) {
   const afterNcd = basic - ncdAmount;
 
   // Add-ons.
+  const notes = [];
   const addons = [];
   for (const [key, on] of Object.entries(cover.addons ?? {})) {
     if (!on || !ADDONS[key]) continue;
     const def = ADDONS[key];
     if (coverType === 'tp' && def.basis && key !== 'ehailing') continue;
     let amt = 0;
-    if (def.flat) amt = def.flat;
-    else if (def.perSeat) amt = def.perSeat * Math.max(Number(vehicle.seats || 5) - 1, 0);
+    if (key === 'ehailing') {
+      amt = eh.fixed ?? basic * def.rate * EHAILING_PERIODS[eh.period].share;
+      amt *= eh.fixed ? 1 : profile.addonFactor[key] ?? 1;
+      addons.push({ key, label: `E-hailing (${EHAILING_PERIODS[eh.period].label.toLowerCase()})`, amount: round2(amt) });
+      if (eh.note) notes.push(eh.note);
+      continue;
+    }
+    if (profile.addonFixed?.[key] !== undefined) amt = profile.addonFixed[key];
+    else if (def.flat) amt = def.flat;
     else if (def.basis === 'windscreenSI') amt = Number(cover.windscreenSI || 0) * def.rate;
     else if (def.basis === 'sumInsured') amt = sumInsured * def.rate;
     else if (def.basis === 'basic') amt = basic * def.rate;
-    amt *= profile.addonFactor[key] ?? 1;
+    if (profile.addonFixed?.[key] === undefined) amt *= profile.addonFactor[key] ?? 1;
     addons.push({ key, label: def.label, amount: round2(amt) });
   }
   const namedDrivers = Math.max(Number(cover.namedDrivers || 0), 0);
@@ -103,8 +112,25 @@ export function rateQuote(req, profile, today = new Date()) {
     excess,
     commission: round2(gross * profile.commissionRate),
     benefits: profile.benefits,
-    validDays: 14,
-    validUntil: new Date(today.getTime() + 14 * 864e5).toISOString().slice(0, 10),
+    notes,
+    validDays: profile.validDays ?? 14,
+    validUntil: new Date(today.getTime() + (profile.validDays ?? 14) * 864e5).toISOString().slice(0, 10),
     loading: 0,
   };
+}
+
+// Which e-hailing period this insurer will quote for the period asked.
+// profile.ehailing: false, or { periods: ['annual', ...], fixed?: annual price }
+function ehailingTerms(cover, profile) {
+  if (!cover.addons?.ehailing) return null;
+  const asked = cover.ehailingPeriod || 'annual';
+  const offer = profile.ehailing;
+  if (!offer) return { declined: 'E-hailing extension not offered' };
+  const periods = offer.periods || ['annual'];
+  if (periods.includes(asked)) return { period: asked, fixed: offer.fixed };
+  if (periods.includes('annual')) {
+    return { period: 'annual', fixed: offer.fixed,
+      note: `Only annual e-hailing is offered; quoted annual instead of ${EHAILING_PERIODS[asked]?.label.toLowerCase() || asked}` };
+  }
+  return { declined: `E-hailing for ${EHAILING_PERIODS[asked]?.label.toLowerCase() || asked} not offered` };
 }

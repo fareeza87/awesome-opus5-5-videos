@@ -165,6 +165,7 @@ export function quotationHtml(comparison, { agency, ids } = {}) {
       <tr class="sec"><th>Terms</th>${offers.map(() => '<td></td>').join('')}</tr>
       ${row('Excess', (o) => (o.excess ? num(o.excess) : 'Nil'))}
       ${row('Quote valid until', (o) => date(o.validUntil))}
+      ${offers.some((o) => o.notes?.length || o.siNote || o.referred) ? row('Notes', (o) => [o.siNote, ...(o.notes || []), o.referred ? 'Referred to underwriter' : null].filter(Boolean).map(esc).join('<br>') || '—', 'small') : ''}
       ${offers.some((o) => o.benefits?.length) ? row('Highlights', (o) => (o.benefits || []).map(esc).join('<br>'), 'small') : ''}
       ${offers.some((o) => o.insurerRef) ? row('Insurer quote no.', (o) => esc(o.insurerRef || '—'), 'small') : ''}
     </tbody>

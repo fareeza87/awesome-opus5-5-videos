@@ -12,16 +12,18 @@ import { quoteViaRpa, lookupViaRpa } from './rpa/index.js';
 
 const PORT = Number(process.env.PORT || 3000);
 
-// `npm run demo:rpa` adds a bot-driven insurer using the practice portal,
-// and makes it the source of the IC + plate lookup.
-const RPA_DEMO = process.env.RPA_DEMO === '1' ? [{
-  id: 'mock-rpa',
-  name: 'Mock Insurer (live RPA)',
-  kind: 'conventional',
-  mode: 'rpa',
-  lookupSource: true,
-  rpa: { bot: 'mock-portal', defaultUrl: `http://localhost:${PORT}/mock-portal`, defaultUser: 'agent01', defaultPass: 'demo123' },
-}] : [];
+// `npm run demo:rpa` adds bot-driven insurers on the practice portal: a plain
+// one (also used for the IC + plate lookup), a Zurich-style one with OTP, and
+// an Etiqa-style one with forced password change and a splash screen.
+const mock = (id, name, style, pass, extra = {}) => ({
+  id, name, kind: 'conventional', mode: 'rpa', ...extra,
+  rpa: { bot: 'mock-portal', defaultUrl: `http://localhost:${PORT}/mock-portal/${style}`, defaultUser: 'agent01', defaultPass: pass },
+});
+const RPA_DEMO = process.env.RPA_DEMO === '1' ? [
+  mock('mock-rpa', 'Mock Insurer (live RPA)', 'basic', 'demo123', { lookupSource: true }),
+  mock('mock-otp', 'Mock Zurich-style (OTP)', 'otp', 'demo123', { kind: 'takaful' }),
+  mock('mock-etiqa', 'Mock Etiqa-style (password change)', 'etiqa', 'Demo@12345678', { kind: 'takaful' }),
+] : [];
 
 export const PROVIDERS = [...RPA_DEMO, ...CONFIGURED.filter((p) => p.enabled !== false)];
 

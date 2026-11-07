@@ -17,6 +17,7 @@ import { PROVIDERS, quoteOne, lookupVehicle } from './providers/index.js';
 import { handleMockPortal } from './mock-portal/index.js';
 import { closeAll, renderPdf } from './providers/rpa/pool.js';
 import { quotationHtml } from './public/quotation.js';
+import { otpEvents, listOtp, submitOtp, inboundSms } from './providers/rpa/otp.js';
 
 // Printed on every quotation. Change to your agency's details.
 const AGENCY = {
@@ -86,9 +87,37 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       res.writeHead(200, { 'content-type': 'application/x-ndjson', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' });
       const emit = (e) => res.write(JSON.stringify(e) + '\n');
-      const result = await runQuote(body, req.headers['x-staff'], emit);
-      if (result.ok) emit({ type: 'done', result });
+      // Pass OTP requests from any bot to this staff member's screen.
+      const onOtp = (o) => emit({ type: 'otp', otp: o });
+      const onOtpDone = (o) => emit({ type: 'otp-done', id: o.id });
+      otpEvents.on('request', onOtp);
+      otpEvents.on('done', onOtpDone);
+      listOtp().forEach(onOtp);
+      try {
+        const result = await runQuote(body, req.headers['x-staff'], emit);
+        if (result.ok) emit({ type: 'done', result });
+      } finally {
+        otpEvents.off('request', onOtp);
+        otpEvents.off('done', onOtpDone);
+      }
       return res.end();
+    }
+    if (url.pathname === '/api/otp' && req.method === 'GET') return send(res, 200, listOtp());
+    if (url.pathname === '/api/otp/inbound' && req.method === 'POST') {
+      // For an SMS-forwarding app on the agency phone. Needs OTP_INBOUND_TOKEN.
+      const token = process.env.OTP_INBOUND_TOKEN;
+      if (!token || (req.headers['x-token'] || url.searchParams.get('token')) !== token) return send(res, 403, { error: 'Bad token' });
+      const raw = await readText(req);
+      let text = raw;
+      try { const j = JSON.parse(raw); text = j.text || j.message || j.body || raw; } catch {}
+      return send(res, 200, inboundSms(String(text)));
+    }
+    const otpMatch = url.pathname.match(/^\/api\/otp\/([\w-]+)$/);
+    if (otpMatch && req.method === 'POST') {
+      const { code } = await readJson(req);
+      try {
+        return submitOtp(otpMatch[1], code) ? send(res, 200, { ok: true }) : send(res, 404, { error: 'This OTP request has expired' });
+      } catch (e) { return send(res, 400, { error: e.message }); }
     }
     if (url.pathname === '/api/quotes' && req.method === 'POST') {
       const result = await runQuote(await readJson(req), req.headers['x-staff']);

@@ -1,55 +1,118 @@
 // A fake insurer agent portal, used only to develop and test the RPA bots.
 // It behaves like a typical Malaysian insurer portal: log in, enter IC +
 // plate + postcode, run the vehicle/NCD enquiry, choose cover, calculate.
-// Served at /mock-portal/* by server.js.
+// Served at /mock-portal/<style>/* by server.js, in three styles:
+//   basic   – user ID + password
+//   otp     – also sends a 6-digit OTP after the password (like Zurich)
+//   etiqa   – forces a password change at every login, then shows a
+//             splash notice that blocks the page until closed (like Etiqa)
 import { randomUUID } from 'node:crypto';
 import { rateQuote } from '../public/engine/rate.js';
 import { PROVIDERS } from '../public/engine/providers-config.js';
 import { demoLookup } from '../public/engine/lookup.js';
 
-const sessions = new Set();
+const sessions = new Map();          // sid → { tenant, step: 'otp' | 'change' | 'ok' }
 const USER = 'agent01';
-const PASS = 'demo123';
+const TENANTS = {
+  basic: { password: 'demo123' },
+  otp: { password: 'demo123', otp: true, lastOtp: null },
+  etiqa: { password: 'Demo@12345678', forceChange: true, splash: true, history: [] },
+};
+export const mockTenants = TENANTS;  // tests read the last OTP from here
 const profile = { ...PROVIDERS[1], id: 'mock', name: 'Mock Insurer', baseFactor: 0.97 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const page = (title, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
 <style>body{font:14px sans-serif;max-width:640px;margin:30px auto}label{display:block;margin:6px 0}input,select{margin-left:6px}.out td{padding:2px 10px}</style></head><body><h1>Mock Insurer Agent Portal</h1>${body}</body></html>`;
 
-function loggedIn(req) {
+function session(req, tenant) {
   const sid = /mp_sid=([\w-]+)/.exec(req.headers.cookie || '')?.[1];
-  return sid && sessions.has(sid);
+  const s = sid && sessions.get(sid);
+  return s && s.tenant === tenant ? { sid, ...s } : null;
+}
+
+function strongEnough(p) {
+  return p.length >= 12 && /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p) && /[^A-Za-z0-9]/.test(p);
 }
 
 export async function handleMockPortal(req, res, url, readForm) {
-  const p = url.pathname.replace('/mock-portal', '') || '/';
+  const [, tenantName = 'basic', ...rest] = url.pathname.replace('/mock-portal', '').split('/');
+  const T = TENANTS[tenantName];
+  if (!T) { res.writeHead(404); return res.end(); }
+  const base = `/mock-portal/${tenantName}`;
+  const p = '/' + rest.join('/');
   const html = (s, body) => { res.writeHead(s, { 'content-type': 'text/html' }); res.end(body); };
   const json = (body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+  const go = (to, cookie) => { res.writeHead(302, { location: base + to, ...(cookie ? { 'set-cookie': cookie } : {}) }); res.end(); };
+  const sess = session(req, tenantName);
+  const setStep = (step) => sessions.set(sess.sid, { tenant: tenantName, step });
 
   if (p === '/' || p === '/login') {
     if (req.method === 'POST') {
       const f = await readForm(req);
-      if (f.username === USER && f.password === PASS) {
+      if (f.username === USER && f.password === T.password) {
         const sid = randomUUID();
-        sessions.add(sid);
-        res.writeHead(302, { 'set-cookie': `mp_sid=${sid}; Path=/mock-portal; HttpOnly`, location: '/mock-portal/quote' });
-        return res.end();
+        let step = 'ok';
+        if (T.otp) {
+          step = 'otp';
+          T.lastOtp = String(100000 + Math.floor(Math.random() * 900000));
+          console.log(`[mock-portal ${tenantName}] OTP sent to registered phone: ${T.lastOtp}`);
+        } else if (T.forceChange) step = 'change';
+        sessions.set(sid, { tenant: tenantName, step });
+        return go(step === 'otp' ? '/otp' : step === 'change' ? '/change-password' : '/quote', `mp_sid=${sid}; Path=${base}; HttpOnly`);
       }
       return html(401, page('Login', '<p id="loginError">Invalid user ID or password</p><a href="login">Back</a>'));
     }
-    return html(200, page('Login', `<form method="post" action="/mock-portal/login">
+    return html(200, page('Login', `<form method="post" action="${base}/login">
       <label>User ID<input id="username" name="username"></label>
       <label>Password<input id="password" name="password" type="password"></label>
       <button type="submit" id="btnLogin">Log in</button></form>`));
   }
 
-  if (!loggedIn(req)) {
-    if (p.startsWith('/api/')) { res.writeHead(401); return res.end(); }
-    res.writeHead(302, { location: '/mock-portal/login' });
-    return res.end();
+  if (p === '/otp' && sess?.step === 'otp') {
+    if (req.method === 'POST') {
+      const f = await readForm(req);
+      if (f.otp === T.lastOtp) { T.lastOtp = null; setStep('ok'); return go('/quote'); }
+      return html(401, page('OTP', '<p id="otpError">Invalid OTP</p><a href="otp">Try again</a>'));
+    }
+    return html(200, page('Verify', `<p>We sent a 6-digit code to your registered mobile number.</p>
+      <form method="post" action="${base}/otp"><label>OTP<input id="otp" name="otp" inputmode="numeric" maxlength="6"></label>
+      <button type="submit" id="btnVerify">Verify</button></form>`));
   }
 
+  if (p === '/change-password' && sess?.step === 'change') {
+    if (req.method === 'POST') {
+      const f = await readForm(req);
+      let err = null;
+      if (f.oldPassword !== T.password) err = 'Current password is incorrect';
+      else if (f.newPassword !== f.confirmPassword) err = 'Passwords do not match';
+      else if (!strongEnough(f.newPassword)) err = 'Password must be at least 12 characters with upper, lower, digit and symbol';
+      else if ([T.password, ...T.history].includes(f.newPassword)) err = 'Cannot reuse a recent password';
+      if (err) return html(400, page('Change password', `<p id="pwError">${err}</p><a href="change-password">Back</a>`));
+      T.history = [T.password, ...T.history].slice(0, 5);
+      T.password = f.newPassword;
+      setStep('ok');
+      return go('/quote');
+    }
+    return html(200, page('Change password', `<p>Your password has expired. Please set a new password.</p>
+      <form method="post" action="${base}/change-password">
+      <label>Current password<input id="oldPassword" name="oldPassword" type="password"></label>
+      <label>New password<input id="newPassword" name="newPassword" type="password"></label>
+      <label>Confirm new password<input id="confirmPassword" name="confirmPassword" type="password"></label>
+      <button type="submit" id="btnChangePassword">Change password</button></form>`));
+  }
+
+  if (sess?.step !== 'ok') {
+    if (p.startsWith('/api/')) { res.writeHead(401); return res.end(); }
+    return go('/login');
+  }
+
+  if (p === '/home') return html(200, page('Home', '<p id="home">Welcome back</p>'));
+
   if (p === '/quote') {
-    return html(200, page('New Motor Quotation', `
+    const splash = T.splash ? `<div id="splash" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:grid;place-items:center">
+        <div style="background:#fff;padding:24px;max-width:420px"><h3>Important notice</h3><p>System maintenance on Sunday 2am–6am.</p>
+        <button id="btnCloseSplash" onclick="document.getElementById('splash').remove()">Close</button></div></div>` : '';
+    return html(200, page('New Motor Quotation', `${splash}
       <h2>New Motor Quotation</h2>
       <label>ID No.<input id="idNo"></label>
       <label>Vehicle Reg No.<input id="vehRegNo"></label>

@@ -16,7 +16,7 @@ export function demoLookup(req) {
   const h = hash(plate + '|' + String(req.owner?.nric || '').replace(/\D/g, ''));
   const v = VEHICLES[h % VEHICLES.length];
   const newest = Math.max(...Object.keys(v.values).map(Number));
-  const year = newest - ((h >> 8) % 7);
+  const year = newest - ((h >>> 8) % 7);
   const age = new Date().getFullYear() - year;
   const ncd = NCD_STEPS[Math.min(Math.max(age - 1, 0), 5)];
   return { make: v.make, model: v.model, cc: v.cc, seats: v.seats, year, ncd, sumInsured: estimateValue(v, year) };

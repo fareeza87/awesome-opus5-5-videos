@@ -30,15 +30,28 @@ export const COVER_TYPES = {
 };
 
 // Optional extensions. `rate` is a share of the base it applies to.
+// Typical market rates, checked against insurer quotation slips (2026).
 export const ADDONS = {
   windscreen: { label: 'Windscreen', basis: 'windscreenSI', rate: 0.15, needs: 'windscreenSI' },
-  specialPerils: { label: 'Special perils (flood, landslide)', basis: 'sumInsured', rate: 0.005 },
+  specialPerils: { label: 'Special perils (flood, landslide)', basis: 'sumInsured', rate: 0.002 },
   srcc: { label: 'Strike, riot & civil commotion', basis: 'sumInsured', rate: 0.003 },
   llop: { label: 'Legal liability of passengers', flat: 7.5 },
-  llan: { label: 'Legal liability to passengers', perSeat: 2.0 },
+  llan: { label: 'Legal liability to passengers', flat: 41.85 },
   allDrivers: { label: 'All drivers', flat: 20 },
-  ehailing: { label: 'E-hailing usage', basis: 'basic', rate: 0.15 },
+  waiverExcess: { label: 'Waiver of compulsory excess', flat: 25 },
+  towing: { label: '24-hour towing', flat: 30 },
+  keyCare: { label: 'Key care', flat: 7 },
+  ehailing: { label: 'E-hailing', basis: 'basic', rate: 0.15 },
   cart: { label: 'Car replacement (CART, 7 days)', flat: 70 },
+};
+
+// E-hailing extension periods. `share` is the part of the annual price
+// charged for a shorter period (short-period scale).
+export const EHAILING_PERIODS = {
+  annual: { label: 'Annual', share: 1 },
+  '6m': { label: '6 months', share: 0.6 },
+  '3m': { label: '3 months', share: 0.35 },
+  '1m': { label: '1 month', share: 0.15 },
 };
 
 export function ccBandIndex(cc) {
