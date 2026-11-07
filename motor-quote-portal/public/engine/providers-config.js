@@ -106,7 +106,8 @@ export const PROVIDERS = [
 //   login: 'password-change'  portal forces a new password; the bot sets one and saves it
 //   splash: true              a notice pops up after login; the bot closes it
 export const PANEL = [
-  { id: 'allianz', name: 'Allianz General Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'allianz' }, enabled: false,
+  { id: 'allianz', name: 'Allianz General Insurance', kind: 'conventional', mode: 'rpa', enabled: false,
+    rpa: { bot: 'allianz', defaultUrl: 'https://sat.allianz.com.my/' },
     ehailing: { periods: ['annual'] }, addonFixed: { allDrivers: 50 }, validDays: 30,
     notes: 'Agreed value with recommended sum insured range. All drivers RM50.' },
   { id: 'generali', name: 'Generali Insurance Malaysia', kind: 'conventional', mode: 'rpa', rpa: { bot: 'generali' }, enabled: false,
@@ -121,7 +122,7 @@ export const PANEL = [
     notes: 'Some quotes come back REFERRED to the motor underwriter.' },
   { id: 'ikhlas', name: 'Takaful Ikhlas General', kind: 'takaful', mode: 'rpa', rpa: { bot: 'ikhlas' }, enabled: false },
   { id: 'po', name: 'Pacific & Orient Insurance', kind: 'conventional', mode: 'rpa', enabled: false, validDays: 14,
-    rpa: { bot: 'po', defaultUrl: 'https://login2agent.pacific-orient.com/' }, ehailing: false,
+    rpa: { bot: 'po', defaultUrl: 'https://login2agent.pacific-orient.com/' }, ehailing: false, hours: { closed: ['21:00', '05:00'] },
     notes: 'Bot ported from the agency script. Needs the customer address. No e-hailing. Cars made before 2012 quoted TPFT.' },
   { id: 'msig', name: 'MSIG Insurance (Malaysia)', kind: 'conventional', mode: 'rpa', rpa: { bot: 'msig' }, enabled: false, validDays: 29 },
   { id: 'liberty', name: 'Liberty General Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'liberty' }, enabled: false, validDays: 15 },

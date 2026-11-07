@@ -151,3 +151,10 @@ input[data-auto], select[data-auto] { background: color-mix(in srgb, var(--good)
 @media (max-width: 600px) { .slip-cust { grid-template-columns: 1fr; } }
 #tab-slips { overflow-x: auto; }
 .warn-banner { margin: 0; border-color: var(--warn); color: var(--warn); font-weight: 600; font-size: 14px; }
+
+.paste { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; margin-bottom: 14px; }
+.paste summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.paste textarea { width: 100%; margin-top: 8px; font: inherit; color: var(--text); background: var(--input); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; resize: vertical; }
+.paste .actions { margin-top: 8px; align-items: center; }
+.consent { flex-direction: row; align-items: flex-start; gap: 8px; color: var(--text); font-size: 13px; }
+.consent input { width: auto; margin-top: 2px; }

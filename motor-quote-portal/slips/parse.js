@@ -222,6 +222,6 @@ function vehicleInfo(lines) {
 }
 
 function tidyLabel(line) {
-  return line.replace(/\(\s*RM\s*[\d,.]*\)/gi, '').replace(MONEY, '').replace(/\bRM\b/g, '').replace(/\(\s*\)|[:+~]/g, ' ').replace(/\s{2,}.*$/, '').replace(/\s+/g, ' ').trim()
+  return line.replace(/\s+sum insured\b.*$/i, '').replace(/\(\s*RM\s*[\d,.]*\)/gi, '').replace(MONEY, '').replace(/\bRM\b/g, '').replace(/\(\s*\)|[:+~]/g, ' ').replace(/\s{2,}.*$/, '').replace(/\s+/g, ' ').trim()
     .toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()).slice(0, 50) || 'Extra coverage';
 }

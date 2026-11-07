@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSlipPdf } from '../../../slips/parse.js';
 import { splitAddress } from './my-address.js';
+import { auditAddons } from '../../../slips/audit.js';
 
 const SLIPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'slips');
 const TPFT_BEFORE_YEAR = Number(process.env.PO_TPFT_BEFORE_YEAR || 2012); // agency rule: older cars get TPFT
@@ -221,7 +222,7 @@ export default {
       status: 'quoted',
       coverType,
       siNote,
-      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`)],
+      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...auditAddons(cover, slip)],
       slipFile: file,
       benefits: ['Official P&O quotation slip saved'],
     };

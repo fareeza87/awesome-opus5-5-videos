@@ -25,11 +25,26 @@ const RPA_DEMO = process.env.RPA_DEMO === '1' ? [
   mock('mock-etiqa', 'Mock Etiqa-style (password change)', 'etiqa', 'Demo@12345678', { kind: 'takaful' }),
   { id: 'mock-po', name: 'Practice P&O (P&O bot)', kind: 'conventional', mode: 'rpa',
     rpa: { bot: 'po', defaultUrl: `http://localhost:${PORT}/mock-portal/po/`, defaultUser: 'agent01', defaultPass: 'demo123' } },
+  { id: 'mock-allianz', name: 'Practice Allianz (Allianz bot)', kind: 'conventional', mode: 'rpa', ehailing: { periods: ['annual'] },
+    rpa: { bot: 'allianz', defaultUrl: `http://localhost:${PORT}/mock-portal/allianz/`, defaultUser: 'agent01', defaultPass: 'demo123', defaultSecret: 'blue' } },
 ] : [];
 
 export const PROVIDERS = [...RPA_DEMO, ...CONFIGURED.filter((p) => p.enabled !== false)];
 
+// Portals that shut at night, e.g. P&O is off from 9pm to 5am.
+//   hours: { closed: ['21:00', '05:00'] }   (Malaysia time)
+export function portalClosed(provider, now = new Date()) {
+  const [from, to] = provider.hours?.closed || [];
+  if (!from) return null;
+  const hm = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kuala_Lumpur' }).format(now);
+  const shut = from < to ? hm >= from && hm < to : hm >= from || hm < to;
+  const fmt = (t) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}${m ? ':' + String(m).padStart(2, '0') : ''}${h < 12 ? 'am' : 'pm'}`; };
+  return shut ? `${provider.name} portal is closed from ${fmt(from)} to ${fmt(to)}. Try again after ${fmt(to)}.` : null;
+}
+
 export async function quoteOne(provider, req) {
+  const closed = portalClosed(provider);
+  if (closed) return { status: 'declined', closed: true, reasons: [closed] };
   switch (provider.mode) {
     case 'demo': return rateQuote(req, provider);
     case 'rpa': return quoteViaRpa(provider, req);

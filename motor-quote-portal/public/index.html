@@ -19,6 +19,11 @@
 <main>
   <section id="tab-quote" class="layout">
     <form id="quote-form" class="card no-print" autocomplete="off">
+      <details class="paste" id="pasteBox">
+        <summary>Paste WhatsApp message</summary>
+        <textarea id="pasteText" rows="5" placeholder="Paste the customer's message: plate, IC, name, phone, address, add-ons…"></textarea>
+        <div class="actions"><button type="button" id="pasteGo" class="primary">Fill form</button><span class="muted small" id="pasteMsg"></span></div>
+      </details>
       <h2>Customer &amp; vehicle</h2>
       <div class="grid">
         <label>ID type
@@ -33,6 +38,8 @@
         <label>Postcode<input name="postcode" id="postcode" required pattern="\d{5}" maxlength="5" placeholder="50450" inputmode="numeric"></label>
         <label>Customer name<input name="name" id="name" placeholder="As per NRIC"></label>
         <label>Mobile<input name="phone" id="phone" placeholder="012-345 6789" inputmode="tel"></label>
+        <label class="span2">Email<input name="email" id="email" type="email" placeholder="For insurers that send e-quotations (e.g. Allianz)"></label>
+        <label class="span2 consent"><input type="checkbox" name="pdpaConsent" id="pdpaConsent"> Customer agreed to the privacy notice (PDPA). Needed by insurers that ask on their form, e.g. Allianz.</label>
         <label class="span2">Address<input name="address" id="address" placeholder="No 12, Jalan Mawar 3, Taman Mawar, Kajang (some insurers e.g. P&amp;O need it)"></label>
       </div>
 

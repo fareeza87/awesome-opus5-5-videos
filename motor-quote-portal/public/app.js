@@ -5,6 +5,7 @@ import { demoLookup } from './engine/lookup.js';
 import { PROVIDERS } from './engine/providers-config.js';
 import { VEHICLES, estimateValue } from './data/vehicles.js';
 import { quotationHtml } from './quotation.js';
+import { parseCustomerMessage } from './engine/intake.js';
 
 // Shown on the printed quotation. Change to your agency's details.
 const AGENCY = {
@@ -83,6 +84,8 @@ $('#demo').addEventListener('click', () => {
   form.regNo.value = 'VBK 2281';
   form.windscreenSI.value = 1500;
   form.address.value = 'No 12, Jalan SS2/24, Petaling Jaya';
+  form.email.value = 'ahmad@example.com';
+  form.pdpaConsent.checked = true;
 });
 
 // ---------- Tabs ----------
@@ -101,7 +104,7 @@ function readForm() {
   const addons = {};
   f.querySelectorAll('input[name=addon]').forEach((c) => { addons[c.value] = c.checked; });
   return {
-    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), postcode: f.postcode.value.trim(), address: f.address.value.trim() },
+    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), email: f.email.value.trim(), pdpaConsent: f.pdpaConsent.checked, postcode: f.postcode.value.trim(), address: f.address.value.trim() },
     vehicle: {
       regNo: f.regNo.value.trim().toUpperCase().replace(/\s+/g, ' '),
       make: f.make.value.trim() || undefined, model: f.model.value.trim() || undefined,
@@ -494,4 +497,21 @@ $('#slipGo').addEventListener('click', async () => {
   document.querySelector('.tab[data-tab=quote]').click();
   renderFinal(current);
   $('#results').scrollIntoView({ behavior: 'smooth' });
+});
+
+// ---------- Paste a WhatsApp message ----------
+$('#pasteGo').addEventListener('click', () => {
+  const r = parseCustomerMessage($('#pasteText').value);
+  const put = (name, v) => { if (v !== undefined && v !== '' && form[name]) { form[name].value = v; delete form[name].dataset.auto; } };
+  put('idType', r.owner.idType); form.idType.dispatchEvent(new Event('change'));
+  for (const k of ['nric', 'name', 'phone', 'email', 'postcode', 'address']) put(k, r.owner[k]);
+  put('regNo', r.vehicle.regNo); put('year', r.vehicle.year); put('model', r.vehicle.model);
+  put('coverType', r.cover.coverType); put('sumInsured', r.cover.sumInsured); put('windscreenSI', r.cover.windscreenSI);
+  put('ehailingPeriod', r.cover.ehailingPeriod);
+  for (const [k, on] of Object.entries(r.cover.addons)) { const c = form.querySelector(`input[name=addon][value=${k}]`); if (c) c.checked = on; }
+  showEh();
+  const missing = ['plate', 'NRIC|passport no.|company reg. no.', 'postcode'].filter((need) => !r.found.some((f) => need.split('|').includes(f)));
+  $('#pasteMsg').textContent = r.found.length
+    ? `Filled: ${r.found.join(', ')}.${missing.length ? ` Still needed: ${missing.map((m) => m.split('|')[0]).join(', ')}.` : ''}`
+    : 'Nothing recognised in that message.';
 });

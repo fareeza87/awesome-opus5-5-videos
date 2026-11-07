@@ -32,6 +32,7 @@ export function credentialsFor(provider) {
     user: process.env[`${prefix}_PORTAL_USER`] || provider.rpa?.defaultUser,
     pass: saved?.current || process.env[`${prefix}_PORTAL_PASS`] || provider.rpa?.defaultPass,
     pendingPass: saved?.pending || null,
+    secret: process.env[`${prefix}_PORTAL_SECRET`] || provider.rpa?.defaultSecret, // security question answer, if the portal asks
   };
   if (!c.url || !c.user || !c.pass) throw new Error(`Portal login not set (${prefix}_PORTAL_URL / _USER / _PASS)`);
   return c;

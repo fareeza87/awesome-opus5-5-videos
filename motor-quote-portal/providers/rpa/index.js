@@ -2,11 +2,13 @@
 import { runBot } from './pool.js';
 import mockPortal from './bots/mock-portal.js';
 import po from './bots/po.js';
+import allianz from './bots/allianz.js';
 
 // Register one bot per insurer portal here.
 const BOTS = {
   'mock-portal': mockPortal,
   po,
+  allianz,
 };
 
 function botFor(provider) {

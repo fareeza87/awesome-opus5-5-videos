@@ -9,14 +9,14 @@ import path from 'node:path';
 let hasPlaywright = true;
 try { createRequire(import.meta.url)('playwright'); } catch { hasPlaywright = false; }
 
-const owner = { name: 'Ali bin Abu', idType: 'nric', nric: '880312-10-5531', postcode: '47301', address: 'No 12, Jalan SS2/24, Petaling Jaya' };
-const quote = async (port, body) => {
+const owner = { name: 'Ali bin Abu', idType: 'nric', nric: '880312-10-5531', postcode: '47301', address: 'No 12, Jalan SS2/24, Petaling Jaya', phone: '012-345 6789', email: 'ali@example.com', pdpaConsent: true };
+const quote = async (port, body, id = 'mock-po') => {
   const r = await (await fetch(`http://localhost:${port}/api/quotes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
   assert.ok(r.ok, JSON.stringify(r.errors));
-  return r.results.find((x) => x.providerId === 'mock-po');
+  return r.results.find((x) => x.providerId === id);
 };
 
-test('P&O bot on the practice P&O portal', { skip: !hasPlaywright && 'Playwright not installed', timeout: 120000 }, async (t) => {
+test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright && 'Playwright not installed', timeout: 240000 }, async (t) => {
   const port = 3700 + Math.floor(Math.random() * 90);
   const srv = spawn(process.execPath, ['server.js'], {
     env: { ...process.env, PORT: String(port), RPA_DEMO: '1', OTP_TIMEOUT_MS: '500', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'vault-')) },
@@ -51,6 +51,21 @@ test('P&O bot on the practice P&O portal', { skip: !hasPlaywright && 'Playwright
       assert.match(eh.reasons[0], /e-hailing/);
       const na = await quote(port, { owner: { ...owner, address: '' }, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', addons: {} } });
       assert.match(na.reasons[0], /address/);
+    });
+    await t.test('Allianz: full quote with e-hailing, windscreen and flood from the e-Quotation PDF', async () => {
+      const x = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', windscreenSI: 1500, addons: { windscreen: true, specialPerils: true, ehailing: true } } }, 'mock-allianz');
+      assert.equal(x.status, 'quoted', JSON.stringify(x.reasons));
+      assert.match(x.insurerRef, /^QKJ\d+/);
+      assert.equal(x.addons.length, 3);
+      assert.ok(x.addons.some((a) => /private hire/i.test(a.label)));
+      assert.deepEqual(x.notes, []);
+      assert.ok(Math.abs(x.gross + x.sst + x.stampDuty - x.total) < 0.06);
+    });
+    await t.test('Allianz: already renewed elsewhere (ENQ001) and missing consent', async () => {
+      const r = await quote(port, { owner, vehicle: { regNo: 'EAA 1234' }, cover: { coverType: 'comprehensive', ncd: 25, sumInsured: 50000, addons: {} } }, 'mock-allianz');
+      assert.match(r.reasons[0], /already renewed/i);
+      const c = await quote(port, { owner: { ...owner, pdpaConsent: false }, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', addons: {} } }, 'mock-allianz');
+      assert.match(c.reasons[0], /privacy notice/);
     });
   } finally {
     const exited = new Promise((r) => srv.on('exit', r));

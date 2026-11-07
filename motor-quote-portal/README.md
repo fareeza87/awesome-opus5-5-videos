@@ -101,6 +101,20 @@ Differences from the Python script, on purpose:
 
 To switch it on: set `PO_PORTAL_USER` and `PO_PORTAL_PASS` (the old `PACIFIC_USERNAME` / `PACIFIC_PASSWORD`), set `enabled: true` on `po` in `PANEL`, and run one quote with `RPA_HEADED=1` to watch it. Cars made before 2012 are quoted TPFT (`PO_TPFT_BEFORE_YEAR`, your existing rule). It is tested against a practice copy of the P&O portal (`/mock-portal/po/`).
 
+P&O's portal is off from 9pm to 5am. In those hours P&O is skipped straight away with "portal is closed, try again after 5am" (`hours: { closed: ['21:00', '05:00'] }`, Malaysia time) instead of waiting for a timeout.
+
+### Allianz
+
+`providers/rpa/bots/allianz.js` is ported from the agency's Selenium script, with the same pages and the same `nx-*` components and `formcontrolname` fields. It handles login, the concurrent-login pop-up (answers YES, which ends any other session on that login, so give the bot its own login), the secret question, Policy Management → Cover Note, the JPJ/ISM wait, the customer page, coverage and add-ons (e-hailing via ADD MORE → Private Hire), GET NO CLAIM DISCOUNT, and the e-Quotation PDF. Prices come only from that PDF; if it doesn't download, the quote fails. ENQ001 (already renewed elsewhere) is reported as such.
+
+Needs: `ALLIANZ_PORTAL_USER`, `ALLIANZ_PORTAL_PASS`, `ALLIANZ_PORTAL_SECRET` (the secret answer). The customer's mobile, email and address are also needed, plus the "customer agreed to the privacy notice" tick on the form, because the bot answers Allianz's privacy declaration with it. `ALLIANZ_FALLBACK_EMAIL` lets the agency's email be used when the customer has none.
+
+Every bot's slip is also checked against what was asked for: a requested add-on missing from the insurer's quotation is flagged (from the agency's `audit_and_sync_quote`).
+
+### Paste a WhatsApp message
+
+On the quote form, **Paste WhatsApp message** reads plate, IC / passport / company number, name, phone, email, address and postcode, model and year, and add-ons (windscreen, flood, e-hailing), in English or Malay, and fills the form. It is ported from the agency's `parse_customer_message`, but leaves anything not in the message empty for staff to fill instead of filling in a default.
+
 ### Portals with OTP (e.g. Zurich)
 
 When a portal asks for a one-time code, the bot pauses and an **OTP box appears on the quote screen** of whoever is quoting. They type the code from the agency phone and the bot carries on. The bot then keeps that portal logged in with light activity every few minutes (`RPA_KEEPALIVE_MIN`, default 8), so staff are asked for an OTP rarely, usually once a day.

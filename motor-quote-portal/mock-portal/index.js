@@ -11,6 +11,7 @@ import { rateQuote } from '../public/engine/rate.js';
 import { PROVIDERS } from '../public/engine/providers-config.js';
 import { demoLookup } from '../public/engine/lookup.js';
 import { handlePoPortal } from './po.js';
+import { handleAllianzPortal } from './allianz.js';
 
 const sessions = new Map();          // sid → { tenant, step: 'otp' | 'change' | 'ok' }
 const USER = 'agent01';
@@ -36,6 +37,7 @@ function strongEnough(p) {
 }
 
 export async function handleMockPortal(req, res, url, readForm) {
+  if (url.pathname.startsWith('/mock-portal/allianz')) return handleAllianzPortal(req, res, url);
   if (url.pathname === '/mock-portal/po' || url.pathname.startsWith('/mock-portal/po/')) return handlePoPortal(req, res, url, readForm);
   const [, tenantName = 'basic', ...rest] = url.pathname.replace('/mock-portal', '').split('/');
   const T = TENANTS[tenantName];
