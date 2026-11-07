@@ -23,6 +23,8 @@ const RPA_DEMO = process.env.RPA_DEMO === '1' ? [
   mock('mock-rpa', 'Mock Insurer (live RPA)', 'basic', 'demo123', { lookupSource: true }),
   mock('mock-otp', 'Mock Zurich-style (OTP)', 'otp', 'demo123', { kind: 'takaful' }),
   mock('mock-etiqa', 'Mock Etiqa-style (password change)', 'etiqa', 'Demo@12345678', { kind: 'takaful' }),
+  { id: 'mock-po', name: 'Practice P&O (P&O bot)', kind: 'conventional', mode: 'rpa',
+    rpa: { bot: 'po', defaultUrl: `http://localhost:${PORT}/mock-portal/po/`, defaultUser: 'agent01', defaultPass: 'demo123' } },
 ] : [];
 
 export const PROVIDERS = [...RPA_DEMO, ...CONFIGURED.filter((p) => p.enabled !== false)];

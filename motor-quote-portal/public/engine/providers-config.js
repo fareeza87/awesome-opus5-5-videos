@@ -120,7 +120,9 @@ export const PANEL = [
   { id: 'stm', name: 'Takaful Malaysia', kind: 'takaful', mode: 'rpa', rpa: { bot: 'stm' }, enabled: false, validDays: 8,
     notes: 'Some quotes come back REFERRED to the motor underwriter.' },
   { id: 'ikhlas', name: 'Takaful Ikhlas General', kind: 'takaful', mode: 'rpa', rpa: { bot: 'ikhlas' }, enabled: false },
-  { id: 'po', name: 'Pacific & Orient Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'po' }, enabled: false, validDays: 14 },
+  { id: 'po', name: 'Pacific & Orient Insurance', kind: 'conventional', mode: 'rpa', enabled: false, validDays: 14,
+    rpa: { bot: 'po', defaultUrl: 'https://login2agent.pacific-orient.com/' }, ehailing: false,
+    notes: 'Bot ported from the agency script. Needs the customer address. No e-hailing. Cars made before 2012 quoted TPFT.' },
   { id: 'msig', name: 'MSIG Insurance (Malaysia)', kind: 'conventional', mode: 'rpa', rpa: { bot: 'msig' }, enabled: false, validDays: 29 },
   { id: 'liberty', name: 'Liberty General Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'liberty' }, enabled: false, validDays: 15 },
 ];

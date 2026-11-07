@@ -87,6 +87,20 @@ Mark **one** insurer `lookupSource: true`. Its portal does the IC + plate enquir
 
 When a bot fails, the insurer's card shows the reason, and a screenshot of the portal at that moment is saved in `data/rpa-errors/` so the selector can be fixed. The other insurers still return their prices.
 
+### Pacific & Orient (first live bot)
+
+`providers/rpa/bots/po.js` is ported from the agency's working Python script and uses the same portal field names (`txtCurrRegNo`, `btnINFO`, `opPCCoInd`, `txtSumin`, `M2`, `M4`/`N4`, …). It searches every frame like the original, dismisses the DriveGuard pop-up, clicks "Main Menu" on the Message of the Day, and keeps the sum insured inside P&O's allowed range. It reports refer-risk cases with their R-codes. The price is read from the official slip in the "Print & Save Quotation" pop-up, which is also saved in `data/slips/`.
+
+Differences from the Python script, on purpose:
+
+- If the slip can't be printed, the quote fails with a clear error. It never builds its own "official" P&O PDF, and never works out gross or tax from the total.
+- If the customer address is missing, the quote is declined with a message. It never types a made-up address.
+- Refer-risk shows P&O's actual reasons. The old script had a fixed "lapsed for 557 days" message.
+- Age comes from the IC, filled in by the portal itself, not from a hard-coded 2026.
+- E-hailing asked for: declined (P&O doesn't offer it), instead of quietly quoting without it.
+
+To switch it on: set `PO_PORTAL_USER` and `PO_PORTAL_PASS` (the old `PACIFIC_USERNAME` / `PACIFIC_PASSWORD`), set `enabled: true` on `po` in `PANEL`, and run one quote with `RPA_HEADED=1` to watch it. Cars made before 2012 are quoted TPFT (`PO_TPFT_BEFORE_YEAR`, your existing rule). It is tested against a practice copy of the P&O portal (`/mock-portal/po/`).
+
 ### Portals with OTP (e.g. Zurich)
 
 When a portal asks for a one-time code, the bot pauses and an **OTP box appears on the quote screen** of whoever is quoting. They type the code from the agency phone and the bot carries on. The bot then keeps that portal logged in with light activity every few minutes (`RPA_KEEPALIVE_MIN`, default 8), so staff are asked for an OTP rarely, usually once a day.

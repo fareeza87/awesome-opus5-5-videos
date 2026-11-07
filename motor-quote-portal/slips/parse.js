@@ -173,9 +173,11 @@ function readByPosition(lines) {
 }
 
 function sumInsured(lines) {
-  for (const l of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
     if (!L.sum.test(l) || /recommended sum insured range|trailer/i.test(l)) continue;
-    const v = money(l).find((n) => n >= 1000);
+    // Amount on the same line, or on the next line when the label wrapped.
+    const v = money(l).find((n) => n >= 1000) ?? money(lines[i + 1] || '').find((n) => n >= 1000);
     if (v) return v;
   }
   return undefined;
@@ -192,7 +194,9 @@ function excessOf(lines) {
 }
 
 function quoteNo(text) {
-  const m = /(?:your quote no\.?|quotation no\.?(?: \/ no\.? sebut harga)?|quotation number|proposal number)\s*[:.]?\s*([A-Z0-9-]*\d[A-Z0-9-]{5,})/i.exec(text);
+  const m = /(?:your quote no\.?|quotation no\.?(?: \/ no\.? sebut harga)?|quotation number|proposal number)\s*[:.]?\s*([A-Z0-9-]*\d[A-Z0-9-]{5,})/i.exec(text)
+    // Label wrapped: a quote number like QUO26100303032 on the next line.
+    || /quotation no[^\n]*\n[^\n]*?\b([A-Z]{2,4}\d{8,})\b/i.exec(text);
   return m?.[1];
 }
 

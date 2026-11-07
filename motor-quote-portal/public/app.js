@@ -82,6 +82,7 @@ $('#demo').addEventListener('click', () => {
   form.postcode.value = '47301';
   form.regNo.value = 'VBK 2281';
   form.windscreenSI.value = 1500;
+  form.address.value = 'No 12, Jalan SS2/24, Petaling Jaya';
 });
 
 // ---------- Tabs ----------
@@ -100,7 +101,7 @@ function readForm() {
   const addons = {};
   f.querySelectorAll('input[name=addon]').forEach((c) => { addons[c.value] = c.checked; });
   return {
-    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), postcode: f.postcode.value.trim() },
+    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), postcode: f.postcode.value.trim(), address: f.address.value.trim() },
     vehicle: {
       regNo: f.regNo.value.trim().toUpperCase().replace(/\s+/g, ' '),
       make: f.make.value.trim() || undefined, model: f.model.value.trim() || undefined,

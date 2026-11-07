@@ -49,6 +49,7 @@ export default {
     const slip = await parseSlipPdf(await readFile(await download.path()), { filename: download.suggestedFilename() });
     if (slip.status === 'error') throw new Error(slip.reasons.join('; '));
     // 'check' = the slip's numbers don't add up: still show it, flagged.
-    return { ...slip, status: 'quoted', notes: slip.checks.map((c) => `Check slip: ${c}`) };
+    const { providerId, provider, kind, ...figures } = slip; // keep the panel's own id and name
+    return { ...figures, status: 'quoted', notes: slip.checks.map((c) => `Check slip: ${c}`) };
   },
 };
