@@ -18,66 +18,74 @@
 <main>
   <section id="tab-quote" class="layout">
     <form id="quote-form" class="card no-print" autocomplete="off">
-      <h2>1 · Customer</h2>
+      <h2>Customer &amp; vehicle</h2>
       <div class="grid">
-        <label>Full name<input name="name" required placeholder="As per NRIC"></label>
-        <label>NRIC no.<input name="nric" required placeholder="900101-14-5678" inputmode="numeric"></label>
-        <label>Phone<input name="phone" placeholder="012-345 6789" inputmode="tel"></label>
-        <label>Postcode<input name="postcode" required pattern="\d{5}" maxlength="5" placeholder="50450" inputmode="numeric"></label>
-      </div>
-
-      <h2>2 · Vehicle</h2>
-      <div class="grid">
-        <label>Registration no.<input name="regNo" required placeholder="WXY 1234" style="text-transform:uppercase"></label>
-        <label class="span2">Quick pick
-          <select name="pick" id="pick"><option value="">— Choose a common model or type below —</option></select>
+        <label>ID type
+          <select name="idType" id="idType">
+            <option value="nric">Malaysian (NRIC)</option>
+            <option value="passport">Foreigner (passport)</option>
+            <option value="company">Company</option>
+          </select>
         </label>
-        <label>Make<input name="make" placeholder="Perodua"></label>
-        <label>Model<input name="model" placeholder="Myvi 1.5"></label>
-        <label>Year made<input name="year" type="number" required min="1980" placeholder="2021"></label>
-        <label>Engine cc<input name="cc" type="number" required min="50" placeholder="1496"></label>
-        <label>Seats<input name="seats" type="number" min="2" max="15" value="5"></label>
+        <label><span id="idLabel">NRIC no.</span><input name="nric" id="nric" required placeholder="900101-14-5678" maxlength="20"></label>
+        <label>Vehicle plate no.<input name="regNo" id="regNo" required placeholder="WXY 1234" style="text-transform:uppercase"></label>
+        <label>Postcode<input name="postcode" id="postcode" required pattern="\d{5}" maxlength="5" placeholder="50450" inputmode="numeric"></label>
+        <label>Customer name<input name="name" id="name" placeholder="As per NRIC"></label>
+        <label>Mobile<input name="phone" id="phone" placeholder="012-345 6789" inputmode="tel"></label>
       </div>
 
-      <h2>3 · Cover</h2>
+      <h2>Cover</h2>
       <div class="grid">
         <label>Cover type
-          <select name="coverType">
+          <select name="coverType" id="coverType">
             <option value="comprehensive">Comprehensive</option>
             <option value="tpft">Third Party, Fire &amp; Theft</option>
             <option value="tp">Third Party only</option>
           </select>
         </label>
-        <label>Sum insured (RM)<input name="sumInsured" type="number" min="1000" step="500" placeholder="44000"></label>
-        <label>Value basis
-          <select name="valueBasis"><option value="market">Market value</option><option value="agreed">Agreed value</option></select>
-        </label>
-        <label>NCD
-          <select name="ncd">
-            <option value="0">0%</option><option value="25">25%</option><option value="30">30%</option>
-            <option value="38.33">38.33%</option><option value="45">45%</option><option value="55" selected>55%</option>
-          </select>
-        </label>
+        <label>Windscreen cover (RM)<input name="windscreenSI" id="windscreenSI" type="number" min="0" step="100" placeholder="1500"></label>
       </div>
-
       <h3>Add-ons</h3>
       <div class="chips" id="addons"></div>
-      <div class="grid">
-        <label>Windscreen cover (RM)<input name="windscreenSI" type="number" min="0" step="100" placeholder="1500"></label>
-        <label>Extra named drivers<input name="namedDrivers" type="number" min="0" max="10" value="0"></label>
-      </div>
+
+      <details id="vehDetails">
+        <summary>Vehicle, NCD &amp; sum insured <span class="muted" id="vehHint">· auto from ISM lookup</span></summary>
+        <p class="muted small">Leave blank and the bot fills these in from the insurer's ISM enquiry. Type a value only to override it. The same sum insured is sent to every insurer.</p>
+        <div class="grid">
+          <label class="span2">Quick pick
+            <select name="pick" id="pick"><option value="">— Common model —</option></select>
+          </label>
+          <label>Make<input name="make" id="make"></label>
+          <label>Model<input name="model" id="model"></label>
+          <label>Year made<input name="year" id="year" type="number" min="1980"></label>
+          <label>Engine cc<input name="cc" id="cc" type="number" min="50"></label>
+          <label>Seats<input name="seats" id="seats" type="number" min="2" max="15" placeholder="5"></label>
+          <label>Extra named drivers<input name="namedDrivers" id="namedDrivers" type="number" min="0" max="10" value="0"></label>
+          <label>Sum insured (RM)<input name="sumInsured" id="sumInsured" type="number" min="1000" step="500" placeholder="Auto"></label>
+          <label>Value basis
+            <select name="valueBasis" id="valueBasis"><option value="market">Market value</option><option value="agreed">Agreed value</option></select>
+          </label>
+          <label>NCD
+            <select name="ncd" id="ncd">
+              <option value="">Auto (ISM)</option>
+              <option value="0">0%</option><option value="25">25%</option><option value="30">30%</option>
+              <option value="38.33">38.33%</option><option value="45">45%</option><option value="55">55%</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
       <div class="actions">
-        <button type="submit" class="primary" id="go">Compare all insurers</button>
+        <button type="submit" class="primary" id="go">Get quotes</button>
         <button type="button" id="demo" class="ghost">Fill sample</button>
-        <button type="reset" class="ghost">Clear</button>
+        <button type="reset" class="ghost" id="clear">Clear</button>
       </div>
       <p class="errors" id="errors" role="alert"></p>
     </form>
 
     <section id="results" class="results">
       <div class="empty card no-print">
-        <p><strong>Fill in the customer once.</strong> Every panel insurer is asked at the same time, and the results come back side by side here.</p>
+        <p><strong>Enter IC, plate and postcode.</strong> The bot looks the car up once, then every panel insurer is quoted on the same sum insured at the same time. Prices appear here as each insurer answers.</p>
       </div>
     </section>
   </section>

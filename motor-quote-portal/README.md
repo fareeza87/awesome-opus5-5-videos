@@ -1,102 +1,127 @@
 # Motor Quote Compare
 
-An internal portal for a motor insurance / takaful agency in Malaysia. Staff enter the customer and vehicle **once**. The portal then asks every panel insurer at the same time and shows the offers side by side, ready to print or send on WhatsApp.
+An internal portal for a motor insurance / takaful agency in Malaysia. Staff enter the customer's **IC, plate number and postcode**. An RPA bot looks the car up once, and then every panel insurer portal is quoted on the **same sum insured** at the same time. Prices appear as each insurer answers, ready to print or send on WhatsApp.
 
-Today staff open each insurer's portal and re-type the same details, about 15 minutes per quotation. This portal replaces that with one form and one click.
+Today staff open each insurer's portal and re-type the same details, about 15 minutes per quotation. This portal replaces that with one short form.
 
-## What it does
+## How it works
 
-- **One form**: customer (name, NRIC, postcode), vehicle (plate, make/model, year, cc), and cover (comprehensive / TPFT / TP, sum insured, market or agreed value, NCD, add-ons, named drivers).
-- **Quick pick** of popular Malaysian models fills the cc, seats and an estimated market value.
-- **Asks all insurers at once**, with a 30-second timeout each. If one insurer fails or declines, the others still show.
-- **Side-by-side offers** ranked by total payable, with the lowest marked. Each offer shows basic premium, NCD, add-ons, gross premium, 8% SST, RM10 stamp duty, excess and the agency's commission (staff only).
-- **Printable quotation** (save as PDF) for the offers you tick, under your agency's letterhead. Commission is never printed.
-- **WhatsApp / copy text** sends a short summary straight to the customer's number.
-- **History**: every comparison is saved, can be searched by name, NRIC or plate, and can be re-opened or re-quoted at renewal.
-- Works on phones as well as desktops.
+```
+Staff: IC + plate + postcode + cover/add-ons
+        │
+        ▼
+1. Lookup (once) ── RPA bot runs the ISM enquiry on one insurer portal
+        │            → make, model, year, cc, NCD, recommended sum insured
+        ▼
+2. Quote (in parallel) ── one bot per insurer portal, all at once,
+        │                 all using that same sum insured
+        ▼
+3. Results stream to the screen as each insurer answers (cheapest first),
+   saved to history, then printed or sent on WhatsApp
+```
+
+This is the same pattern GoInsuran (Tan Chong) uses on its public quote page. The customer gives only ID type, IC, plate, postcode, name, email and mobile. Vehicle details, NCD and sum insured are looked up behind the scenes, and every insurer is quoted on that one sum insured.
+
+**Same sum insured.** Each insurer only accepts a sum insured inside its own range, usually about ±10% of its valuation. If the shared amount falls outside that range, the bot quotes the nearest amount the insurer allows. The offer is then flagged on screen, on WhatsApp and on the printout, so staff and customers can see which offers used a different amount.
+
+**Speed.** Each bot keeps its insurer portal logged in between quotes. Logging in is the slowest step, so after the first quote of the day an insurer usually answers in 2–3 seconds.
 
 ## Run it
 
-Needs Node 18 or newer. There are no packages to install.
+Needs Node 18 or newer.
 
 ```bash
 cd motor-quote-portal
-npm start            # http://localhost:3000
-npm test             # rating engine tests
+npm install          # installs Playwright (used by the RPA bots)
+npm start            # http://localhost:3000 — demo insurers only
+npm run demo:rpa     # adds a live RPA bot against the practice portal
+npm test             # engine, lookup flow and RPA bot tests
 ```
 
-If you open `public/index.html` without the server (for example as a static page), it runs in **demo mode**: quotes are priced in the browser and history is kept in that browser only.
+`npm run demo:rpa` starts a **practice insurer portal** at `/mock-portal` (user `agent01`, password `demo123`). It behaves like a real agent portal: login, ISM enquiry, sum insured range, calculate. A real bot logs in and quotes on it, so you can see the full RPA flow without touching a real insurer. Set `RPA_HEADED=1` to watch the browser.
 
-## How insurers are connected
+If you open `public/index.html` without the server, it runs in **demo mode**: quotes are priced in the browser and history stays in that browser.
 
-Each panel insurer is one entry in `public/engine/providers-config.js`. Its `mode` decides how the server gets a quote:
+## Connecting insurers
 
-| mode | How it works | When to use |
+Each panel insurer is one entry in `public/engine/providers-config.js`. Its `mode` decides how it is quoted:
+
+| mode | How | Use for |
 |---|---|---|
-| `demo` | Priced locally from the tariff base × that insurer's factors (base rate, old-car loading, young-driver loading, region, agreed value, add-on pricing, maximum vehicle age, maximum sum insured, e-hailing appetite). | Now, and for insurers whose rate guide you can mirror. |
-| `api` | `providers/api-connector.js` calls the insurer's agency API. Edit `toInsurerFormat` / `fromInsurerFormat` for that insurer. | When an insurer gives you API access. |
-| `portal` | `providers/portal-connector.js` logs in to the insurer's agent portal with a headless browser (Playwright) and fills in the quotation form, the same way staff do by hand. | Insurers with no API. Check your agency agreement allows automated access first. |
+| `rpa` | Built-in Playwright bot logs in to the insurer's agent portal and fills in the quotation form. | Insurers with only a web portal (most of them). |
+| `webhook` | Calls a bot you already run in your own RPA tool (UiPath, Power Automate, Automation Anywhere) through its HTTP trigger. | If your RPA team already has bots for some portals. |
+| `api` | Calls the insurer's agency API. | Insurers that give you API access. |
+| `demo` | Sample pricing only. Never send these prices to customers. | Trying the portal. |
 
-Credentials always come from environment variables, never from the code. For example, the insurer with id `insurer-a` uses:
+Mark **one** insurer `lookupSource: true`. Its portal does the IC + plate enquiry. Pick the fastest, most reliable portal.
 
-```
-INSURER_A_API_URL=...      INSURER_A_API_KEY=...
-INSURER_A_PORTAL_URL=...   INSURER_A_PORTAL_USER=...   INSURER_A_PORTAL_PASS=...
-```
+### Adding an RPA bot for a real insurer portal
 
-**To add a real insurer:**
+1. Copy `providers/rpa/bots/mock-portal.js` to, for example, `providers/rpa/bots/insurer-a.js`.
+2. Open the insurer portal, go through one quotation by hand, and copy each field's selector into the bot. Use the browser's Inspect, or run `npx playwright codegen <portal-url>` to record the steps. A bot has four steps:
+   - `login(page, creds)`
+   - `isLoginPage(page)`: used to detect an expired session and log in again
+   - `lookup(page, req)`: IC + plate → vehicle, NCD, recommended sum insured and its allowed range
+   - `quote(page, req)`: sum insured, cover, add-ons, then read the premium breakdown
+3. Register the bot in `providers/rpa/index.js` and set the insurer in `providers-config.js`:
+   ```js
+   { id: 'insurer-a', name: 'Insurer A', kind: 'conventional', mode: 'rpa', rpa: { bot: 'insurer-a' }, ... }
+   ```
+4. Put the login details in environment variables on the server, never in code:
+   ```
+   INSURER_A_PORTAL_URL=https://agent.insurer-a.com.my
+   INSURER_A_PORTAL_USER=...
+   INSURER_A_PORTAL_PASS=...
+   ```
 
-1. Rename an entry in `providers-config.js`, for example `{ id: 'insurer-a', name: 'Allianz', kind: 'conventional', mode: 'api', ... }`.
-2. Set its environment variables.
-3. For `portal` mode, run `npm install playwright` and replace the CSS selectors in `portal-connector.js` with that portal's own. Copy the file once per insurer.
+When a bot fails, the insurer's card shows the reason, and a screenshot of the portal at that moment is saved in `data/rpa-errors/` so the selector can be fixed. The other insurers still return their prices.
 
-## Rating basics used in demo mode
+### Things to check per insurer
 
-These are in `public/engine/tariff.js`.
+- **Permission:** confirm your agency agreement allows automated access to the portal, and use a dedicated agent login for the bot.
+- **OTP / captcha at login:** the bot can't type an OTP. Ask the insurer for an OTP-exempt login on a whitelisted IP, or use their API.
+- **Portal changes:** when an insurer redesigns its portal, that bot needs new selectors. The error screenshots show where it broke.
+- **One login, one session:** each bot runs one quote at a time per insurer. For busy periods, ask the insurer for extra agent logins.
 
-- The base is the former PIAM private-car tariff, with Peninsular and East Malaysia (Sabah, Sarawak, Labuan by postcode) tables and 8 cc bands. Comprehensive is the first RM1,000 plus RM26 (Peninsular) or RM20.30 (East) for each further RM1,000. TPFT is 75% of comprehensive. TP has its own table.
-- NCD steps: 0 / 25 / 30 / 38.33 / 45 / 55%.
-- SST is 8% of the gross premium. Stamp duty is RM10.
-- Add-ons:
-  - windscreen: 15% of the windscreen sum insured
-  - special perils: 0.5% of the sum insured
-  - SRCC: 0.3% of the sum insured
-  - legal liability of passengers: RM7.50
-  - legal liability to passengers: per seat
-  - all drivers: RM20
-  - additional named drivers: RM10 each
-  - e-hailing: 15% of the basic premium
-  - CART: flat fee
-- Driver age comes from the NRIC. An extra RM400 excess applies to drivers under 21.
+## What staff see
 
-**The demo insurer profiles and prices are placeholders, not real insurer rates.** Do not send them to customers until each insurer is connected through its API or portal, or has been tuned against its current rate guide.
+- A short form: ID type (NRIC, passport or company), ID number, plate, postcode, name, mobile, cover type and add-ons.
+- **Vehicle, NCD & sum insured** is auto-filled by the lookup. Staff only open it to override a value.
+- Live cards: "Bot filling insurer portal…" until each price lands, then the cards are re-ranked with the cheapest first.
+- Each offer shows basic premium, NCD, add-ons, gross premium, 8% SST, RM10 stamp duty, excess, insurer quotation number and commission. Commission is staff-only and never printed.
+- **Print / save PDF** puts the ticked offers on your letterhead. **WhatsApp** and **Copy text** produce a short message for the customer.
+- **History**: every comparison is saved, searchable by name, IC or plate, and can be re-quoted at renewal.
 
 ## Files
 
 ```
-server.js                     API + static files (no dependencies)
-providers/                    connectors: demo, api, portal
-public/index.html, app.js     staff UI
-public/styles.css             UI and print layout for the quotation
-public/engine/                rating engine shared by browser and server
-public/data/vehicles.js       sample vehicle list for quick pick
-data/quotes.json              saved comparisons (created at runtime, git-ignored)
-test/engine.test.js           tests
+server.js                         API, quote streaming, static files
+providers/index.js                picks the connector per insurer, runs the lookup
+providers/rpa/pool.js             one logged-in browser session per insurer
+providers/rpa/bots/*.js           one bot per insurer portal
+providers/webhook-connector.js    bots in your own RPA tool
+providers/api-connector.js        insurer APIs
+mock-portal/                      practice insurer portal for building and testing bots
+public/                           staff screen (index.html, app.js, styles.css)
+public/engine/                    rating, lookup and compare logic (browser + server)
+data/                             saved quotes and bot error screenshots (git-ignored)
 ```
 
 ## API
 
 ```
-GET  /api/providers           panel insurers
-POST /api/quotes              { owner, vehicle, cover } → ranked results (saved)
-GET  /api/quotes?q=VBK        recent comparisons, searchable
-GET  /api/quotes/:id          one saved comparison
+POST /api/quotes/stream   { owner, vehicle, cover } → one JSON event per line:
+                          lookup → start → quote (per insurer) → done
+POST /api/quotes          same, one reply at the end
+GET  /api/quotes?q=VBK    saved comparisons
+GET  /api/quotes/:id      one saved comparison
+GET  /api/providers       panel insurers
 ```
 
-## Next steps before going live
+## Before going live
 
-1. **Connect the panel insurers**, starting with the ones you quote most often.
-2. **Add staff login.** Put the portal behind your office VPN or SSO. NRIC numbers are personal data under the PDPA.
-3. **Look up vehicle data** (market value from the ISM/ABI valuation, NCD confirmation from ISM) to replace the manual sum insured and NCD.
-4. **Move history to a proper database** (Postgres/SQLite) once several staff use it at the same time.
-5. **Issue cover notes** from the chosen offer, using the same connectors.
+1. Write bots for your panel insurers, starting with the ones you quote most and the one used for lookups.
+2. Add staff login, for example behind the office VPN or SSO. IC numbers are personal data under the PDPA.
+3. Run it on an office server or a small cloud VM in Malaysia, with Playwright installed.
+4. Move history from the JSON file to a database (SQLite or Postgres) once several staff use it.
+5. Next step after that: issue the cover note from the chosen offer with the same bot.

@@ -1,6 +1,7 @@
 import { ADDONS, COVER_TYPES, ageFromNric } from './engine/tariff.js';
 import { rateQuote } from './engine/rate.js';
-import { compareAll } from './engine/compare.js';
+import { compareStream, rank } from './engine/compare.js';
+import { demoLookup } from './engine/lookup.js';
 import { PROVIDERS } from './engine/providers-config.js';
 import { VEHICLES, estimateValue } from './data/vehicles.js';
 
@@ -14,10 +15,12 @@ const AGENCY = {
 const $ = (s, el = document) => el.querySelector(s);
 const form = $('#quote-form');
 const rm = (n) => 'RM ' + Number(n).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const rm0 = (n) => 'RM ' + Number(n).toLocaleString('en-MY', { maximumFractionDigits: 0 });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-let current = null;   // last comparison
-let serverOnline = true;
+let current = null;       // finished comparison shown on screen
+let serverOnline = true;  // false = static demo, priced in the browser
 
 // ---------- Setup ----------
 const pick = $('#pick');
@@ -30,37 +33,46 @@ pick.addEventListener('change', () => {
   form.cc.value = v.cc;
   form.seats.value = v.seats;
   if (!form.year.value) form.year.value = new Date().getFullYear() - 3;
-  suggestValue();
+  form.sumInsured.value = estimateValue(v, Number(form.year.value));
 });
-form.year.addEventListener('change', suggestValue);
-function suggestValue() {
-  const v = VEHICLES[pick.value];
-  if (v && form.year.value) form.sumInsured.value = estimateValue(v, Number(form.year.value));
-}
 
-const addonBox = $('#addons');
 const DEFAULT_ON = ['windscreen', 'specialPerils', 'srcc', 'llop'];
 for (const [key, a] of Object.entries(ADDONS)) {
-  addonBox.insertAdjacentHTML('beforeend',
+  $('#addons').insertAdjacentHTML('beforeend',
     `<label class="chip"><input type="checkbox" name="addon" value="${key}" ${DEFAULT_ON.includes(key) ? 'checked' : ''}><span>${esc(a.label)}</span></label>`);
 }
 
+const ID_LABELS = { nric: ['NRIC no.', '900101-14-5678'], passport: ['Passport no.', 'A12345678'], company: ['Company reg. no.', '202301012345'] };
+form.idType.addEventListener('change', () => {
+  const [label, ph] = ID_LABELS[form.idType.value];
+  $('#idLabel').textContent = label;
+  form.nric.placeholder = ph;
+});
 form.coverType.addEventListener('change', () => {
   const tp = form.coverType.value === 'tp';
   form.sumInsured.disabled = tp;
   form.valueBasis.disabled = tp;
 });
 
+// Details filled by a lookup belong to that plate + IC. Clear them when either changes.
+const AUTO_FIELDS = ['make', 'model', 'year', 'cc', 'seats', 'sumInsured', 'ncd'];
+for (const n of ['regNo', 'nric']) {
+  form[n].addEventListener('input', () => {
+    for (const f of AUTO_FIELDS) if (form[f].dataset.auto) { form[f].value = ''; delete form[f].dataset.auto; }
+    $('#vehHint').textContent = '· auto from ISM lookup';
+  });
+}
+for (const f of AUTO_FIELDS) form[f].addEventListener('input', () => delete form[f].dataset.auto);
+form.addEventListener('reset', () => { for (const f of AUTO_FIELDS) delete form[f].dataset.auto; $('#vehHint').textContent = '· auto from ISM lookup'; });
+
 $('#demo').addEventListener('click', () => {
+  form.reset();
   form.name.value = 'Ahmad bin Ismail';
   form.nric.value = '880312-10-5531';
   form.phone.value = '012-345 6789';
   form.postcode.value = '47301';
   form.regNo.value = 'VBK 2281';
-  pick.value = 2; pick.dispatchEvent(new Event('change'));
-  form.year.value = 2021; suggestValue();
   form.windscreenSI.value = 1500;
-  form.ncd.value = '38.33';
 });
 
 // ---------- Tabs ----------
@@ -74,22 +86,23 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
 // ---------- Quote ----------
 function readForm() {
   const f = form;
+  const num = (el) => (el.value === '' ? undefined : Number(el.value));
   const addons = {};
   f.querySelectorAll('input[name=addon]').forEach((c) => { addons[c.value] = c.checked; });
   return {
-    owner: { name: f.name.value.trim(), nric: f.nric.value.trim(), phone: f.phone.value.trim(), postcode: f.postcode.value.trim() },
+    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), postcode: f.postcode.value.trim() },
     vehicle: {
       regNo: f.regNo.value.trim().toUpperCase().replace(/\s+/g, ' '),
-      make: f.make.value.trim(), model: f.model.value.trim(),
-      year: Number(f.year.value), cc: Number(f.cc.value), seats: Number(f.seats.value || 5),
+      make: f.make.value.trim() || undefined, model: f.model.value.trim() || undefined,
+      year: num(f.year), cc: num(f.cc), seats: num(f.seats),
     },
     cover: {
       coverType: f.coverType.value,
-      sumInsured: Number(f.sumInsured.value || 0),
+      sumInsured: num(f.sumInsured),
       valueBasis: f.valueBasis.value,
-      ncd: Number(f.ncd.value),
-      windscreenSI: Number(f.windscreenSI.value || 0),
-      namedDrivers: Number(f.namedDrivers.value || 0),
+      ncd: f.ncd.value === '' ? '' : Number(f.ncd.value),
+      windscreenSI: num(f.windscreenSI) || 0,
+      namedDrivers: num(f.namedDrivers) || 0,
       addons,
     },
   };
@@ -97,39 +110,55 @@ function readForm() {
 
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const req = readForm();
   const btn = $('#go');
-  btn.disabled = true; btn.textContent = 'Asking insurers…';
+  btn.disabled = true; btn.textContent = 'Getting quotes…';
   $('#errors').textContent = '';
-  $('#results').innerHTML = `<div class="card loading">${PROVIDERS.map((p) => `<div class="row-skel">${esc(p.name)} <span>waiting…</span></div>`).join('')}</div>`;
+  const live = startLive(readForm());
   try {
-    const result = await runCompare(req);
-    if (!result.ok) {
-      $('#errors').textContent = result.errors.join(' · ');
-      $('#results').innerHTML = '';
-      return;
+    const result = await streamQuotes(live.request, live.onEvent);
+    if (result?.ok) {
+      current = result;
+      renderFinal(result);
     }
-    current = result;
-    renderResults(result);
-    if (matchMedia('(max-width: 900px)').matches) $('#results').scrollIntoView({ behavior: 'smooth' });
   } catch (err) {
     $('#errors').textContent = err.message;
   } finally {
-    btn.disabled = false; btn.textContent = 'Compare all insurers';
+    live.stop();
+    btn.disabled = false; btn.textContent = 'Get quotes';
   }
 });
 
-async function runCompare(req) {
+// Reads the server's stream (one JSON event per line). Falls back to pricing
+// in the browser when there is no server, e.g. the static demo page.
+async function streamQuotes(req, onEvent) {
   if (serverOnline) {
+    let res;
     try {
-      const r = await fetch('api/quotes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) });
-      if (r.status === 400) return r.json();
-      if (r.ok && (r.headers.get('content-type') || '').includes('json')) return r.json();
-      throw new Error('no server');
+      res = await fetch('api/quotes/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) });
+      if (!res.ok || !(res.headers.get('content-type') || '').includes('ndjson')) throw new Error();
     } catch { serverOnline = false; }
+    if (serverOnline) {
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '', final = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf('\n')) >= 0) {
+          const ev = JSON.parse(buf.slice(0, i)); buf = buf.slice(i + 1);
+          if (ev.type === 'done') final = ev.result; else onEvent(ev);
+        }
+      }
+      return final;
+    }
   }
-  // No server (e.g. static demo): price locally with the demo profiles and keep history in this browser.
-  const result = await compareAll(req, PROVIDERS, async (p) => rateQuote(req, p));
+  // Static demo: same flow, simulated delays so it feels like live bots.
+  const result = await compareStream(req, PROVIDERS, async (p, r) => { await sleep(600 + Math.random() * 2200); return rateQuote(r, p); }, {
+    lookup: async (r) => { await sleep(900); const f = demoLookup(r); if (!f) throw new Error('Plate number not recognised'); return { source: 'Demo lookup', ...f }; },
+    onEvent,
+  });
   if (result.ok) {
     result.id = Math.random().toString(36).slice(2, 10).toUpperCase();
     const rows = localHistory();
@@ -139,10 +168,62 @@ async function runCompare(req) {
   return result;
 }
 
-function renderResults(r) {
+// Live view while bots are working.
+function startLive(request) {
+  const t0 = Date.now();
+  const state = { request, lookup: null, providers: [], results: new Map() };
+  $('#results').innerHTML = `<div class="card summary live" id="live-head"></div><div class="offers" id="live-offers"></div>`;
+  const tick = setInterval(drawHead, 200);
+
+  function drawHead() {
+    if (!$('#live-head')) return;
+    const done = state.results.size, total = state.providers.length;
+    const { vehicle, cover } = state.request;
+    const f = state.lookup;
+    $('#live-head').innerHTML = `
+      <div>
+        <h2>${esc(vehicle.regNo)}${vehicle.make ? ` · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year ?? ''}` : ''}</h2>
+        <div class="muted">${!total ? (f ? 'Vehicle found' : 'Looking up vehicle &amp; NCD…') : `Quoting ${total} insurers on the same sum insured`}</div>
+        ${f ? `<div class="found">Found by ${esc(f.source)} · ${esc(f.make)} ${esc(f.model)}, ${f.year}, ${f.cc}cc · NCD ${f.ncd}% · Sum insured ${rm0(cover.sumInsured)}</div>` : ''}
+      </div>
+      <div class="stats">
+        ${total ? `<div><b>${done}/${total}</b><span>answered</span></div>` : ''}
+        <div><b>${((Date.now() - t0) / 1000).toFixed(1)}s</b><span>elapsed</span></div>
+      </div>`;
+  }
+  function drawOffers() {
+    if (!$('#live-offers')) return;
+    const answered = rank([...state.results.values()]);
+    const waiting = state.providers.filter((p) => !state.results.has(p.id));
+    $('#live-offers').innerHTML = answered.map((o, i) => offerCard(o, i, false)).join('')
+      + waiting.map((p) => `<article class="offer card pending"><header><h3>${esc(p.name)}</h3>${kindTag(p.kind)}</header>
+          <p class="muted">${p.mode === 'rpa' || p.mode === 'webhook' ? 'Bot filling insurer portal…' : 'Waiting for insurer…'}</p><div class="bar"></div></article>`).join('');
+  }
+  drawHead();
+  return {
+    request,
+    stop: () => { clearInterval(tick); },
+    onEvent(ev) {
+      if (ev.type === 'lookup') {
+        state.lookup = ev.found; state.request = ev.request; fillForm(ev.request, { onlyEmpty: true });
+        $('#vehHint').textContent = `· found ${ev.found.make} ${ev.found.model}`;
+      }
+      if (ev.type === 'start') { state.providers = ev.providers; drawOffers(); }
+      if (ev.type === 'quote') { state.results.set(ev.result.providerId, ev.result); drawOffers(); }
+      if (ev.type === 'error') { $('#errors').textContent = ev.errors.join(' · '); $('#results').innerHTML = ''; clearInterval(tick); }
+      drawHead();
+    },
+  };
+}
+
+function kindTag(kind) {
+  return `<span class="tag ${kind}">${kind === 'takaful' ? 'Takaful' : 'Insurance'}</span>`;
+}
+
+function renderFinal(r) {
   const { owner, vehicle, cover } = r.request;
   const quoted = r.results.filter((x) => x.status === 'quoted');
-  const age = ageFromNric(owner.nric);
+  const age = (owner.idType || 'nric') === 'nric' ? ageFromNric(owner.nric) : null;
   const spread = quoted.length > 1 ? quoted[quoted.length - 1].total - quoted[0].total : 0;
 
   $('#results').innerHTML = `
@@ -150,16 +231,16 @@ function renderResults(r) {
       <div>
         <div class="muted">Ref ${esc(r.id)} · ${new Date(r.createdAt).toLocaleString('en-MY')}</div>
         <h2>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year}</h2>
-        <div class="muted">${esc(owner.name)}${age !== null ? ` · age ${age}` : ''} · ${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · SI ${rm(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%</div>
+        <div class="muted">${esc(owner.name || owner.nric)}${age !== null ? ` · age ${age}` : ''} · ${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · SI ${rm0(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%</div>
       </div>
       <div class="stats">
         <div><b>${quoted.length}/${r.results.length}</b><span>quotes</span></div>
         <div><b>${(r.ms / 1000).toFixed(1)}s</b><span>total time</span></div>
-        ${spread ? `<div><b>${rm(spread)}</b><span>price spread</span></div>` : ''}
+        ${spread ? `<div><b>${rm0(spread)}</b><span>price spread</span></div>` : ''}
       </div>
     </div>
-    ${serverOnline ? '' : '<p class="note no-print">Demo mode: priced in this browser with sample insurer profiles. Run the server to use real connectors and shared history.</p>'}
-    <div class="offers">${r.results.map(offerCard).join('')}</div>
+    ${serverOnline ? '' : '<p class="note no-print">Demo mode: sample insurer prices worked out in this browser. On the server, RPA bots fetch live prices from each insurer portal.</p>'}
+    <div class="offers">${r.results.map((o, i) => offerCard(o, i, true)).join('')}</div>
     <div class="card share no-print">
       <span class="muted">Tick the offers to show the customer, then:</span>
       <button class="primary" id="print">Print / save PDF</button>
@@ -173,26 +254,27 @@ function renderResults(r) {
   };
   // Link is rebuilt on click so it carries the offers ticked at that moment.
   $('#wa').onclick = () => {
-    const phone = owner.phone.replace(/\D/g, '').replace(/^0/, '60');
+    const phone = (owner.phone || '').replace(/\D/g, '').replace(/^0/, '60');
     $('#wa').href = `https://wa.me/${phone}?text=${encodeURIComponent(shareText())}`;
   };
 }
 
-function offerCard(o, i) {
+function offerCard(o, i, selectable) {
   if (o.status !== 'quoted') {
     return `<article class="offer card off">
-      <header><h3>${esc(o.provider)}</h3><span class="tag ${o.kind}">${o.kind === 'takaful' ? 'Takaful' : 'Insurance'}</span></header>
+      <header><h3>${esc(o.provider)}</h3>${kindTag(o.kind)}</header>
       <p class="muted">${o.status === 'declined' ? 'Declined' : 'Could not get a quote'}: ${esc(o.reasons.join('; '))}</p>
     </article>`;
   }
-  return `<article class="offer card ${o.cheapest ? 'best' : ''}">
+  return `<article class="offer card ${o.cheapest ? 'best' : ''} ${selectable ? '' : 'arrived'}">
     <header>
-      <label class="pickme no-print"><input type="checkbox" class="sel" value="${esc(o.providerId)}" ${i < 3 ? 'checked' : ''}></label>
+      ${selectable ? `<label class="pickme no-print"><input type="checkbox" class="sel" value="${esc(o.providerId)}" ${i < 3 ? 'checked' : ''}></label>` : ''}
       <h3>${esc(o.provider)}</h3>
-      <span class="tag ${o.kind}">${o.kind === 'takaful' ? 'Takaful' : 'Insurance'}</span>
+      ${kindTag(o.kind)}
       ${o.cheapest ? '<span class="tag best">Lowest</span>' : ''}
     </header>
-    <div class="price">${rm(o.total)}<small>total payable</small></div>
+    <div class="price">${rm(o.total)}<small>total payable${o.mode !== 'demo' || o.ms >= 300 ? ` · ${(o.ms / 1000).toFixed(1)}s` : ''}${o.mode === 'rpa' || o.mode === 'webhook' ? ' · live portal' : ''}</small></div>
+    ${o.siNote ? `<p class="warn">${esc(o.siNote)}</p>` : ''}
     <dl>
       <dt>Basic premium</dt><dd>${rm(o.basic)}</dd>
       <dt>NCD ${o.ncdPercent ?? ''}%</dt><dd>− ${rm(o.ncdAmount)}</dd>
@@ -202,14 +284,15 @@ function offerCard(o, i) {
       <dt>Stamp duty</dt><dd>${rm(o.stampDuty)}</dd>
       <dt>Excess</dt><dd>${o.excess ? rm(o.excess) : 'Nil'}</dd>
       <dt class="staff">Commission</dt><dd class="staff">${rm(o.commission)}</dd>
+      ${o.insurerRef ? `<dt>Insurer ref</dt><dd>${esc(o.insurerRef)}</dd>` : ''}
     </dl>
-    <details class="no-print"><summary>Breakdown</summary>
+    ${o.factors || o.addons?.length ? `<details class="no-print"><summary>Breakdown</summary>
       <ul>
-        <li>Tariff base ${rm(o.tariff ?? o.basic)}</li>
+        ${o.tariff ? `<li>Tariff base ${rm(o.tariff)}</li>` : ''}
         ${(o.factors || []).map((f) => `<li>${esc(f.label)} × ${f.factor}</li>`).join('')}
-        ${o.addons.map((a) => `<li>${esc(a.label)}: ${rm(a.amount)}</li>`).join('')}
+        ${(o.addons || []).map((a) => `<li>${esc(a.label)}: ${rm(a.amount)}</li>`).join('')}
       </ul>
-    </details>
+    </details>` : ''}
     ${o.benefits?.length ? `<ul class="benefits">${o.benefits.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
   </article>`;
 }
@@ -221,15 +304,16 @@ function selected() {
 
 function shareText() {
   const { owner, vehicle, cover } = current.request;
+  const first = (owner.name || '').split(' ')[0];
   const lines = [
-    `Salam ${owner.name.split(' ')[0]}, here is your motor ${cover.coverType === 'tp' ? 'cover' : 'insurance'} comparison:`,
+    `Salam${first ? ' ' + first : ''}, here is your motor insurance comparison:`,
     `${vehicle.regNo} · ${vehicle.make} ${vehicle.model} ${vehicle.year}`,
-    `${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · Sum insured ${rm(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%`,
+    `${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · Sum insured ${rm0(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%`,
     '',
-    ...selected().map((o, i) => `${i + 1}. ${o.provider}: *${rm(o.total)}*${o.excess ? ` (excess ${rm(o.excess)})` : ''}`),
+    ...selected().map((o, i) => `${i + 1}. ${o.provider}: *${rm(o.total)}*${o.excess ? ` (excess ${rm(o.excess)})` : ''}${o.sumInsured !== cover.sumInsured && cover.coverType !== 'tp' ? ` (SI ${rm0(o.sumInsured)})` : ''}`),
     '',
     `Prices include SST and stamp duty. Valid 14 days. Ref ${current.id}.`,
-    `Reply with the number to proceed.`,
+    'Reply with the number to proceed.',
   ];
   return lines.join('\n');
 }
@@ -243,12 +327,13 @@ function buildPrint() {
     <div class="ps-head"><div><h1>${esc(AGENCY.name)}</h1><p>${esc(AGENCY.line)}</p><p>${esc(AGENCY.contact)}</p></div>
       <div class="ps-ref"><b>MOTOR QUOTATION</b><br>Ref ${esc(current.id)}<br>${new Date(current.createdAt).toLocaleDateString('en-MY')}</div></div>
     <table class="ps-info">
-      <tr><th>Customer</th><td>${esc(owner.name)}</td><th>Vehicle</th><td>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year} · ${vehicle.cc}cc</td></tr>
+      <tr><th>Customer</th><td>${esc(owner.name || owner.nric)}</td><th>Vehicle</th><td>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year} · ${vehicle.cc}cc</td></tr>
       <tr><th>Cover</th><td>${COVER_TYPES[cover.coverType]}</td><th>Sum insured</th><td>${cover.coverType === 'tp' ? '—' : rm(cover.sumInsured) + ` (${cover.valueBasis} value)`}</td></tr>
       <tr><th>NCD</th><td>${cover.ncd}%</td><th>Add-ons</th><td>${esc(addonNames.join(', ') || 'None')}</td></tr>
     </table>
     <table class="ps-compare">
       <tr><th></th>${offers.map((o) => `<th>${esc(o.provider)}<br><small>${o.kind === 'takaful' ? 'Takaful' : 'Insurance'}</small></th>`).join('')}</tr>
+      ${cover.coverType !== 'tp' ? row('Sum insured', (o) => rm(o.sumInsured)) : ''}
       ${row('Basic premium', (o) => rm(o.basic))}
       ${row('Less NCD', (o) => '− ' + rm(o.ncdAmount))}
       ${row('Add-ons', (o) => rm(o.addonTotal))}
@@ -289,7 +374,7 @@ async function loadHistory() {
       .filter((x) => !q || JSON.stringify(x.request).toLowerCase().includes(q.toLowerCase()))
       .map((x) => {
         const best = x.results.find((o) => o.cheapest);
-        return { id: x.id, createdAt: x.createdAt, customer: x.request.owner.name, regNo: x.request.vehicle.regNo,
+        return { id: x.id, createdAt: x.createdAt, customer: x.request.owner.name || x.request.owner.nric, regNo: x.request.vehicle.regNo,
           vehicle: `${x.request.vehicle.make} ${x.request.vehicle.model}`, cheapest: best && { provider: best.provider, total: best.total } };
       });
   }
@@ -308,14 +393,19 @@ $('#history-list').addEventListener('click', async (e) => {
   const full = serverOnline ? await (await fetch('api/quotes/' + id)).json() : localHistory().find((x) => x.id === id);
   if (!full) return;
   if (e.target.dataset.requote) fillForm(full.request);
-  else { current = full; renderResults(full); }
+  else { current = full; renderFinal(full); }
   document.querySelector('.tab[data-tab=quote]').click();
 });
 
-function fillForm({ owner, vehicle, cover }) {
-  const set = (n, v) => { if (form[n]) form[n].value = v ?? ''; };
+function fillForm({ owner, vehicle, cover }, { onlyEmpty = false } = {}) {
+  const set = (n, v) => {
+    const el = form[n];
+    if (!el || (onlyEmpty && el.value !== '')) return;
+    el.value = v ?? '';
+    if (onlyEmpty && v !== undefined && v !== '') el.dataset.auto = '1'; else delete el.dataset.auto;
+  };
   Object.entries(owner).forEach(([k, v]) => set(k, v));
   Object.entries(vehicle).forEach(([k, v]) => set(k, v));
   ['coverType', 'sumInsured', 'valueBasis', 'ncd', 'windscreenSI', 'namedDrivers'].forEach((k) => set(k, cover[k]));
-  form.querySelectorAll('input[name=addon]').forEach((c) => { c.checked = !!cover.addons[c.value]; });
+  if (!onlyEmpty) form.querySelectorAll('input[name=addon]').forEach((c) => { c.checked = !!cover.addons[c.value]; });
 }

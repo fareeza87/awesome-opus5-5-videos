@@ -3,13 +3,23 @@ import {
   ADDONS, NCD_STEPS, SST_RATE, STAMP_DUTY, ageFromNric, region, round2, tariffBasic,
 } from './tariff.js';
 
-export function validateRequest(req) {
+// The minimum needed to look a vehicle up: who owns it, which plate, where.
+export function validateBasics(req) {
   const errors = [];
-  const year = new Date().getFullYear();
+  const idType = req.owner?.idType || 'nric';
+  const id = String(req.owner?.nric || '').replace(/\D/g, '');
+  if (idType === 'nric' && id.length !== 12) errors.push('NRIC must have 12 digits');
+  if (idType !== 'nric' && !String(req.owner?.nric || '').trim()) errors.push(idType === 'company' ? 'Company registration no. is required' : 'Passport no. is required');
   if (!req.vehicle?.regNo) errors.push('Vehicle registration number is required');
+  if (!/^\d{5}$/.test(String(req.owner?.postcode ?? ''))) errors.push('Postcode must be 5 digits');
+  return errors;
+}
+
+export function validateRequest(req) {
+  const errors = validateBasics(req);
+  const year = new Date().getFullYear();
   if (!(req.vehicle?.cc > 0)) errors.push('Engine capacity (cc) is required');
   if (!(req.vehicle?.year >= 1980 && req.vehicle.year <= year + 1)) errors.push('Year of manufacture looks wrong');
-  if (!/^\d{5}$/.test(String(req.owner?.postcode ?? ''))) errors.push('Postcode must be 5 digits');
   if (req.cover?.coverType !== 'tp' && !(req.cover?.sumInsured >= 1000)) errors.push('Sum insured must be at least RM1,000');
   if (!NCD_STEPS.includes(Number(req.cover?.ncd))) errors.push('NCD must be one of ' + NCD_STEPS.join(', '));
   return errors;
@@ -21,7 +31,7 @@ export function rateQuote(req, profile, today = new Date()) {
   const coverType = cover.coverType;
   const sumInsured = coverType === 'tp' ? 0 : Number(cover.sumInsured);
   const vehicleAge = today.getFullYear() - Number(vehicle.year);
-  const driverAge = ageFromNric(owner.nric, today);
+  const driverAge = (owner.idType || 'nric') === 'nric' ? ageFromNric(owner.nric, today) : null;
   const reg = region(owner.postcode);
 
   // Underwriting rules that make an insurer decline.
