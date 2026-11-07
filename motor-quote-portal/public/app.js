@@ -163,15 +163,18 @@ function renderResults(r) {
     <div class="card share no-print">
       <span class="muted">Tick the offers to show the customer, then:</span>
       <button class="primary" id="print">Print / save PDF</button>
-      <button id="wa">WhatsApp</button>
+      <a id="wa" class="btn" target="_blank" rel="noopener">WhatsApp</a>
       <button id="copy">Copy text</button>
     </div>`;
 
   $('#print').onclick = () => { buildPrint(); window.print(); };
-  $('#copy').onclick = async () => { await navigator.clipboard.writeText(shareText()); flash('#copy', 'Copied'); };
+  $('#copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(shareText()); flash('#copy', 'Copied'); } catch { flash('#copy', 'Copy blocked'); }
+  };
+  // Link is rebuilt on click so it carries the offers ticked at that moment.
   $('#wa').onclick = () => {
     const phone = owner.phone.replace(/\D/g, '').replace(/^0/, '60');
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(shareText())}`, '_blank');
+    $('#wa').href = `https://wa.me/${phone}?text=${encodeURIComponent(shareText())}`;
   };
 }
 

@@ -63,7 +63,7 @@ input:disabled, select:disabled { opacity: .5; }
 .chip input { margin: 0; width: auto; accent-color: var(--brand); }
 .chip:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent); }
 
-button { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 7px; padding: 8px 14px; cursor: pointer; }
+button, .btn { font: inherit; text-decoration: none; display: inline-block; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 7px; padding: 8px 14px; cursor: pointer; }
 button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; }
 button.ghost { background: none; }
 button:disabled { opacity: .6; cursor: wait; }
