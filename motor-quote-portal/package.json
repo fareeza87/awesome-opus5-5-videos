@@ -15,5 +15,8 @@
   },
   "optionalDependencies": {
     "playwright": "^1.48.0"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
   }
 }

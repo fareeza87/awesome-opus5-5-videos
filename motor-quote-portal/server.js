@@ -18,6 +18,8 @@ import { handleMockPortal } from './mock-portal/index.js';
 import { closeAll, renderPdf } from './providers/rpa/pool.js';
 import { quotationHtml } from './public/quotation.js';
 import { otpEvents, listOtp, submitOtp, inboundSms } from './providers/rpa/otp.js';
+import { parseSlipPdf } from './slips/parse.js';
+import { comparisonFromSlips } from './slips/compare.js';
 
 // Printed on every quotation. Change to your agency's details.
 const AGENCY = {
@@ -62,6 +64,16 @@ async function readText(req) {
   }
   return data;
 }
+async function readBytes(req, max = 15_000_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > max) throw new Error('File too large');
+    chunks.push(c);
+  }
+  return Buffer.concat(chunks);
+}
 const readJson = async (req) => JSON.parse((await readText(req)) || '{}');
 const readForm = async (req) => Object.fromEntries(new URLSearchParams(await readText(req)));
 
@@ -101,6 +113,25 @@ const server = http.createServer(async (req, res) => {
         otpEvents.off('done', onOtpDone);
       }
       return res.end();
+    }
+    // Quotation slips downloaded from insurer portals: read one PDF.
+    if (url.pathname === '/api/slips' && req.method === 'POST') {
+      const pdf = await readBytes(req);
+      if (pdf.subarray(0, 4).toString() !== '%PDF') return send(res, 400, { error: 'Not a PDF file' });
+      const filename = decodeURIComponent(req.headers['x-filename'] || '');
+      try {
+        return send(res, 200, await parseSlipPdf(pdf, { filename }));
+      } catch (e) {
+        return send(res, 200, { status: 'error', provider: filename || 'Slip', reasons: [`Could not read this PDF: ${e.message}`] });
+      }
+    }
+    // Several read slips → one saved comparison.
+    if (url.pathname === '/api/slips/compare' && req.method === 'POST') {
+      const { slips = [], customer = {} } = await readJson(req);
+      const result = comparisonFromSlips(slips, customer);
+      result.id = randomUUID().slice(0, 8).toUpperCase();
+      await saveQuote(result);
+      return send(res, 200, result);
     }
     if (url.pathname === '/api/otp' && req.method === 'GET') return send(res, 200, listOtp());
     if (url.pathname === '/api/otp/inbound' && req.method === 'POST') {

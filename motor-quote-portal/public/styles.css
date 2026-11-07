@@ -139,3 +139,15 @@ input[data-auto], select[data-auto] { background: color-mix(in srgb, var(--good)
 .otp p { margin: 2px 0 0; font-size: 13px; }
 .otp input { width: 9em; font-size: 18px; letter-spacing: .2em; text-align: center; }
 .otp-msg { flex-basis: 100%; font-size: 13px; }
+
+.drop { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; border: 2px dashed var(--line); border-radius: var(--radius); padding: 28px 16px; cursor: pointer; color: var(--text); font-size: 14px; margin: 12px 0; }
+.drop.over, .drop:hover { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 6%, transparent); }
+.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.drop span { font-size: 12.5px; }
+.slips .ok { color: var(--good); font-weight: 600; }
+.slips .warn { color: var(--warn); font-size: 12.5px; }
+.slips button { padding: 2px 8px; }
+.slip-cust { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 12px; }
+@media (max-width: 600px) { .slip-cust { grid-template-columns: 1fr; } }
+#tab-slips { overflow-x: auto; }
+.warn-banner { margin: 0; border-color: var(--warn); color: var(--warn); font-weight: 600; font-size: 14px; }

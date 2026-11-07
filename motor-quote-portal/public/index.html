@@ -11,6 +11,7 @@
   <div class="brand"><span class="logo">MQ</span> <span>Motor Quote<span class="full"> Compare</span></span></div>
   <nav>
     <button class="tab active" data-tab="quote">New quote</button>
+    <button class="tab" data-tab="slips">Upload slips</button>
     <button class="tab" data-tab="history">History</button>
   </nav>
 </header>
@@ -97,6 +98,22 @@
         <p><strong>Enter IC, plate and postcode.</strong> The bot looks the car up once, then every panel insurer is quoted on the same sum insured at the same time. Prices appear here as each insurer answers.</p>
       </div>
     </section>
+  </section>
+
+  <section id="tab-slips" class="card hidden no-print">
+    <h2>Compare quotation slips</h2>
+    <p class="muted small">Already have quotation PDFs from the insurer portals? Drop them here. Each slip is read and checked (basic − NCD + add-ons = gross, gross + tax + stamp = total), then shown side by side with the usual quotation, PDF and WhatsApp.</p>
+    <label class="drop" id="drop">
+      <input type="file" id="slipFiles" accept="application/pdf" multiple>
+      <b>Drop slip PDFs here</b><span class="muted">or tap to choose · Allianz, Generali, Berjaya Sompo, Takaful Malaysia, Takaful Ikhlas, P&amp;O, MSIG, Etiqa, Zurich</span>
+    </label>
+    <div id="slipList"></div>
+    <div class="grid slip-cust">
+      <label>Customer name<input id="slipName" placeholder="Optional"></label>
+      <label>Mobile<input id="slipPhone" placeholder="For WhatsApp" inputmode="tel"></label>
+      <label>Plate no.<input id="slipPlate" placeholder="If not on the slips" style="text-transform:uppercase"></label>
+    </div>
+    <div class="actions"><button class="primary" id="slipGo" disabled>Build comparison</button><button class="ghost" id="slipClear">Clear</button></div>
   </section>
 
   <section id="tab-history" class="card hidden no-print">

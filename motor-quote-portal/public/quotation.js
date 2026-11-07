@@ -118,15 +118,15 @@ export function quotationHtml(comparison, { agency, ids } = {}) {
       <h2>Prepared for</h2>
       <dl class="kv">
         <dt>Name</dt><dd>${esc(owner.name || '—')}</dd>
-        <dt>${owner.idType === 'company' ? 'Company no.' : owner.idType === 'passport' ? 'Passport' : 'NRIC'}</dt><dd>${esc(maskId(owner.nric, owner.idType))}</dd>
+        ${owner.nric ? `<dt>${owner.idType === 'company' ? 'Company no.' : owner.idType === 'passport' ? 'Passport' : 'NRIC'}</dt><dd>${esc(maskId(owner.nric, owner.idType))}</dd>` : ''}
         ${owner.phone ? `<dt>Mobile</dt><dd>${esc(owner.phone)}</dd>` : ''}
-        <dt>Postcode</dt><dd>${esc(owner.postcode)}</dd>
+        ${owner.postcode ? `<dt>Postcode</dt><dd>${esc(owner.postcode)}</dd>` : ''}
       </dl>
     </div>
     <div class="box">
       <h2>Vehicle &amp; cover</h2>
       <div class="veh"><span class="plate">${esc(vehicle.regNo)}</span>
-        <div><strong>${esc(vehicle.make || '')} ${esc(vehicle.model || '')}</strong><span class="muted">${vehicle.year || ''} · ${vehicle.cc || ''}cc · ${vehicle.seats || 5} seats${vehicle.use ? ' · ' + esc(vehicle.use) : ''}</span></div></div>
+        <div><strong>${esc(vehicle.make || '')} ${esc(vehicle.model || '')}</strong><span class="muted">${[vehicle.year, vehicle.cc && `${vehicle.cc}cc`, vehicle.seats && `${vehicle.seats} seats`, vehicle.use && esc(vehicle.use)].filter(Boolean).join(' · ')}</span></div></div>
       <div class="two">
         <dl class="kv"><dt>Cover</dt><dd>${COVER[cover.coverType] || esc(cover.coverType)}</dd>
           <dt>Sum insured</dt><dd>${cover.coverType === 'tp' ? '—' : rm0(cover.sumInsured)}</dd></dl>

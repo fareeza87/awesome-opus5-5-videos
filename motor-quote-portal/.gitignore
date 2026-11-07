@@ -3,5 +3,4 @@ data/rpa-errors/
 data/vault.json
 data/.vault-key
 node_modules/
-package-lock.json
 .env

@@ -89,6 +89,7 @@ document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () 
   document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
   $('#tab-quote').classList.toggle('hidden', t.dataset.tab !== 'quote');
   $('#tab-history').classList.toggle('hidden', t.dataset.tab !== 'history');
+  $('#tab-slips').classList.toggle('hidden', t.dataset.tab !== 'slips');
   if (t.dataset.tab === 'history') loadHistory();
 }));
 
@@ -271,8 +272,8 @@ function renderFinal(r) {
     <div class="card summary">
       <div>
         <div class="muted">Ref ${esc(r.id)} · ${new Date(r.createdAt).toLocaleString('en-MY')}</div>
-        <h2>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year}</h2>
-        <div class="muted">${esc(owner.name || owner.nric)}${age !== null ? ` · age ${age}` : ''} · ${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · SI ${rm0(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%</div>
+        <h2>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year ?? ''}</h2>
+        <div class="muted">${esc(owner.name || owner.nric || 'Customer')}${age !== null ? ` · age ${age}` : ''} · ${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · SI ${rm0(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%</div>
       </div>
       <div class="stats">
         <div><b>${quoted.length}/${r.results.length}</b><span>quotes</span></div>
@@ -280,6 +281,7 @@ function renderFinal(r) {
         ${spread ? `<div><b>${rm0(spread)}</b><span>price spread</span></div>` : ''}
       </div>
     </div>
+    ${(r.warnings || []).map((w) => `<p class="card warn-banner">${esc(w)}</p>`).join('')}
     ${serverOnline ? '' : '<p class="note no-print">Demo mode: sample insurer prices worked out in this browser. On the server, RPA bots fetch live prices from each insurer portal.</p>'}
     <div class="offers">${r.results.map((o, i) => offerCard(o, i, true)).join('')}</div>
     <div class="card share no-print">
@@ -316,7 +318,7 @@ function offerCard(o, i, selectable) {
       ${kindTag(o.kind)}
       ${o.cheapest ? '<span class="tag best">Lowest</span>' : ''}
     </header>
-    <div class="price">${rm(o.total)}<small>total payable${o.mode !== 'demo' || o.ms >= 300 ? ` · ${(o.ms / 1000).toFixed(1)}s` : ''}${o.mode === 'rpa' || o.mode === 'webhook' ? ' · live portal' : ''}</small></div>
+    <div class="price">${rm(o.total)}<small>total payable${o.mode === 'slip' ? ' · from slip' : ''}${(o.mode !== 'demo' && o.mode !== 'slip') || o.ms >= 300 ? ` · ${(o.ms / 1000).toFixed(1)}s` : ''}${o.mode === 'rpa' || o.mode === 'webhook' ? ' · live portal' : ''}</small></div>
     ${o.siNote ? `<p class="warn">${esc(o.siNote)}</p>` : ''}
     ${(o.notes || []).map((n) => `<p class="warn">${esc(n)}</p>`).join('')}
     ${o.referred ? '<p class="warn">Referred to the insurer\'s underwriter: price is subject to approval.</p>' : ''}
@@ -328,7 +330,7 @@ function offerCard(o, i, selectable) {
       <dt>SST 8%</dt><dd>${rm(o.sst)}</dd>
       <dt>Stamp duty</dt><dd>${rm(o.stampDuty)}</dd>
       <dt>Excess</dt><dd>${o.excess ? rm(o.excess) : 'Nil'}</dd>
-      <dt class="staff">Commission</dt><dd class="staff">${rm(o.commission)}</dd>
+      ${o.commission != null ? `<dt class="staff">Commission</dt><dd class="staff">${rm(o.commission)}</dd>` : ''}
       ${o.insurerRef ? `<dt>Insurer ref</dt><dd>${esc(o.insurerRef)}</dd>` : ''}
     </dl>
     ${o.factors || o.addons?.length ? `<details class="no-print"><summary>Breakdown</summary>
@@ -352,7 +354,7 @@ function shareText() {
   const first = (owner.name || '').split(' ')[0];
   const lines = [
     `Salam${first ? ' ' + first : ''}, here is your motor insurance comparison:`,
-    `${vehicle.regNo} · ${vehicle.make} ${vehicle.model} ${vehicle.year}`,
+    `${vehicle.regNo} · ${vehicle.make} ${vehicle.model} ${vehicle.year ?? ''}`,
     `${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · Sum insured ${rm0(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%`,
     '',
     ...selected().map((o, i) => `${i + 1}. ${o.provider}: *${rm(o.total)}*${o.excess ? ` (excess ${rm(o.excess)})` : ''}${o.sumInsured !== cover.sumInsured && cover.coverType !== 'tp' ? ` (SI ${rm0(o.sumInsured)})` : ''}`),
@@ -435,3 +437,60 @@ function fillForm({ owner, vehicle, cover }, { onlyEmpty = false } = {}) {
   ['coverType', 'sumInsured', 'valueBasis', 'ncd', 'windscreenSI', 'namedDrivers', 'ehailingPeriod'].forEach((k) => set(k, cover[k]));
   if (!onlyEmpty) { form.querySelectorAll('input[name=addon]').forEach((c) => { c.checked = !!cover.addons[c.value]; }); showEh(); }
 }
+
+// ---------- Upload slips ----------
+let slips = [];
+
+async function addSlipFiles(files) {
+  for (const file of files) {
+    if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) continue;
+    const row = { name: file.name, state: 'reading' };
+    slips.push(row);
+    drawSlips();
+    try {
+      const r = await fetch('api/slips', { method: 'POST', headers: { 'content-type': 'application/pdf', 'x-filename': encodeURIComponent(file.name) }, body: file });
+      if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error(r.status === 404 ? 'Reading slips needs the portal server' : (await r.json()).error);
+      Object.assign(row, { state: 'done', slip: await r.json() });
+    } catch (e) {
+      Object.assign(row, { state: 'done', slip: { status: 'error', provider: file.name, reasons: [e.message || 'Could not read this file'] } });
+    }
+    drawSlips();
+  }
+}
+
+function drawSlips() {
+  $('#slipList').innerHTML = slips.length ? `<table class="history slips">
+    <tr><th>Slip</th><th>Insurer</th><th>Sum insured</th><th>Total payable</th><th>Check</th><th></th></tr>
+    ${slips.map((r, i) => {
+      const s = r.slip;
+      const state = r.state === 'reading' ? '<span class="muted">Reading…</span>'
+        : s.status === 'quoted' ? '<span class="ok">✓ Adds up</span>'
+        : s.status === 'check' ? `<span class="warn">Check: ${esc(s.checks.join('; '))}</span>`
+        : `<span class="warn">${esc(s.reasons.join('; '))}</span>`;
+      return `<tr><td><small>${esc(r.name)}</small></td><td>${esc(s?.provider || '')}${s?.referred ? ' <span class="tag">Referred</span>' : ''}</td>
+        <td>${s?.sumInsured ? rm0(s.sumInsured) : '—'}</td><td>${s?.total ? `<b>${rm(s.total)}</b>` : '—'}</td><td>${state}</td>
+        <td><button class="ghost" data-rm="${i}" aria-label="Remove">✕</button></td></tr>`;
+    }).join('')}</table>` : '';
+  $('#slipGo').disabled = !slips.some((r) => r.slip && (r.slip.status === 'quoted' || r.slip.status === 'check'));
+}
+
+$('#slipFiles').addEventListener('change', (e) => { addSlipFiles([...e.target.files]); e.target.value = ''; });
+const drop = $('#drop');
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); addSlipFiles([...e.dataTransfer.files]); });
+$('#slipList').addEventListener('click', (e) => { if (e.target.dataset.rm) { slips.splice(Number(e.target.dataset.rm), 1); drawSlips(); } });
+$('#slipClear').addEventListener('click', () => { slips = []; drawSlips(); });
+
+$('#slipGo').addEventListener('click', async () => {
+  const body = {
+    slips: slips.map((r) => r.slip).filter((s) => s && s.status !== 'error'),
+    customer: { name: $('#slipName').value.trim(), phone: $('#slipPhone').value.trim(), regNo: $('#slipPlate').value.trim().toUpperCase() },
+  };
+  const r = await fetch('api/slips/compare', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) return;
+  current = await r.json();
+  document.querySelector('.tab[data-tab=quote]').click();
+  renderFinal(current);
+  $('#results').scrollIntoView({ behavior: 'smooth' });
+});

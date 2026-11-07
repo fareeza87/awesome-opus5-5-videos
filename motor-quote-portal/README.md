@@ -42,6 +42,17 @@ npm test             # engine, lookup flow and RPA bot tests
 
 If you open `public/index.html` without the server, it runs in **demo mode**: quotes are priced in the browser and history stays in that browser.
 
+## Reading quotation slips
+
+`slips/parse.js` reads the quotation slip PDF that each insurer portal produces: basic premium, NCD, add-ons, gross, service tax, stamp duty, total, sum insured, excess, quote number, validity and "referred" status. It checks every slip adds up (basic − NCD + add-ons = gross; gross + tax + stamp duty = total) and flags any that don't.
+
+It is tested against real slips from **Allianz, Generali, Berjaya Sompo, Takaful Malaysia, Takaful Ikhlas, P&O and MSIG** (also Etiqa and Zurich). The test data keeps only the price lines, with customer details removed. MSIG's PDF uses a font whose text comes out scrambled, so its digits are decoded and its figures are read by position, then checked by the sums.
+
+It is used in two places:
+
+1. **Upload slips tab**: staff drop in the slip PDFs they already download from the portals and get the comparison, quotation PDF and WhatsApp message straight away. No bots needed. Slips for different cars, or at different sums insured, are flagged.
+2. **RPA bots**: each bot fills the portal form, downloads the slip and hands it to the same reader (see `providers/rpa/bots/_template.js`). The bot only drives the portal; reading and checking prices is shared and already tested.
+
 ## Connecting insurers
 
 Each panel insurer is one entry in `public/engine/providers-config.js`. Its `mode` decides how it is quoted:
