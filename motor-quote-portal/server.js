@@ -15,7 +15,17 @@ import { randomUUID } from 'node:crypto';
 import { compareStream } from './public/engine/compare.js';
 import { PROVIDERS, quoteOne, lookupVehicle } from './providers/index.js';
 import { handleMockPortal } from './mock-portal/index.js';
-import { closeAll } from './providers/rpa/pool.js';
+import { closeAll, renderPdf } from './providers/rpa/pool.js';
+import { quotationHtml } from './public/quotation.js';
+
+// Printed on every quotation. Change to your agency's details.
+const AGENCY = {
+  name: process.env.AGENCY_NAME || 'Your Agency Sdn Bhd',
+  line: process.env.AGENCY_LINE || 'Authorised agent for panel insurers & takaful operators',
+  contact: process.env.AGENCY_CONTACT || 'Tel 03-0000 0000 · hello@youragency.my',
+  agent: process.env.AGENCY_AGENT || 'Your insurance advisor',
+  color: process.env.AGENCY_COLOR || '#0b5cad',
+};
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -88,6 +98,15 @@ const server = http.createServer(async (req, res) => {
       const q = (url.searchParams.get('q') || '').toLowerCase();
       const rows = (await loadDb()).filter((r) => !q || JSON.stringify(r.request).toLowerCase().includes(q));
       return send(res, 200, rows.slice(0, 50).map(summary));
+    }
+    const pdf = url.pathname.match(/^\/api\/quotes\/([A-Z0-9-]+)\/pdf$/);
+    if (pdf) {
+      const row = (await loadDb()).find((r) => r.id === pdf[1]);
+      if (!row) return send(res, 404, { error: 'Not found' });
+      const ids = url.searchParams.get('ids')?.split(',').filter(Boolean);
+      const file = await renderPdf(quotationHtml(row, { agency: AGENCY, ids }));
+      res.writeHead(200, { 'content-type': 'application/pdf', 'content-disposition': `inline; filename="Quotation-${row.request.vehicle.regNo.replace(/\W/g, '')}-${row.id}.pdf"` });
+      return res.end(file);
     }
     const m = url.pathname.match(/^\/api\/quotes\/([A-Z0-9-]+)$/);
     if (m) {

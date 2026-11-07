@@ -68,6 +68,17 @@ export function runBot(provider, bot, task) {
   return job;
 }
 
+// Turns a quotation page into an A4 PDF, reusing the bots' browser.
+export async function renderPdf(html) {
+  const page = await (await browser()).newPage();
+  try {
+    await page.setContent(html, { waitUntil: 'load' });
+    return await page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
+  } finally {
+    await page.close();
+  }
+}
+
 export async function closeAll() {
   for (const s of slots.values()) await s.context?.close().catch(() => {});
   slots.clear();

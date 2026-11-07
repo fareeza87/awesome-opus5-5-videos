@@ -37,7 +37,6 @@ h2:first-child { margin-top: 0; }
 h3 { font-size: 14px; margin: 14px 0 8px; }
 small, .muted { color: var(--muted); }
 .hidden { display: none !important; }
-.print-only { display: none; }
 
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px; background: var(--card); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
 .brand { font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 8px; }
@@ -134,24 +133,3 @@ input[data-auto], select[data-auto] { background: color-mix(in srgb, var(--good)
 .offer.arrived { animation: pop .35s ease-out; }
 @keyframes pop { from { transform: translateY(6px); opacity: .4; } }
 @media (prefers-reduced-motion: reduce) { .bar::after, .offer.arrived, .loading .row-skel span { animation: none; } }
-
-/* ---------- Printed quotation ---------- */
-@media print {
-  :root { --text: #000; --muted: #444; --line: #bbb; }
-  body { background: #fff; color: #000; font-size: 12px; }
-  .no-print, .topbar, .layout > form, .offers, .summary, .note, #tab-history { display: none !important; }
-  main { padding: 0; max-width: none; }
-  .layout { display: block; }
-  .print-only { display: block; }
-  .ps-head { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 12px; }
-  .ps-head h1 { margin: 0; font-size: 18px; }
-  .ps-head p { margin: 2px 0; }
-  .ps-ref { text-align: right; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
-  th, td { border: 1px solid #bbb; padding: 5px 7px; text-align: left; vertical-align: top; }
-  .ps-info th { width: 14%; background: #f2f2f2; }
-  .ps-compare th:first-child { width: 20%; }
-  .ps-compare td { text-align: right; }
-  .ps-compare tr:last-child td { text-align: left; font-size: 11px; }
-  .ps-foot { font-size: 10.5px; color: #444; }
-}

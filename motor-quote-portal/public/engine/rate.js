@@ -104,5 +104,7 @@ export function rateQuote(req, profile, today = new Date()) {
     commission: round2(gross * profile.commissionRate),
     benefits: profile.benefits,
     validDays: 14,
+    validUntil: new Date(today.getTime() + 14 * 864e5).toISOString().slice(0, 10),
+    loading: 0,
   };
 }

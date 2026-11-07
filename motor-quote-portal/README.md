@@ -89,7 +89,7 @@ When a bot fails, the insurer's card shows the reason, and a screenshot of the p
 - **Vehicle, NCD & sum insured** is auto-filled by the lookup. Staff only open it to override a value.
 - Live cards: "Bot filling insurer portal…" until each price lands, then the cards are re-ranked with the cheapest first.
 - Each offer shows basic premium, NCD, add-ons, gross premium, 8% SST, RM10 stamp duty, excess, insurer quotation number and commission. Commission is staff-only and never printed.
-- **Print / save PDF** puts the ticked offers on your letterhead. **WhatsApp** and **Copy text** produce a short message for the customer.
+- **Print** or **Download PDF** produces a one-page A4 comparison of the ticked offers on your letterhead: the lowest price and saving at the top, a price bar for each insurer, a line-by-line breakdown, each insurer's quote validity, and the NRIC masked. The layout is in `public/quotation.js`, and agency details come from the `AGENCY_*` environment variables. **WhatsApp** and **Copy text** produce a short message for the customer.
 - **History**: every comparison is saved, searchable by name, IC or plate, and can be re-quoted at renewal.
 
 ## Files
@@ -115,6 +115,7 @@ POST /api/quotes/stream   { owner, vehicle, cover } → one JSON event per line:
 POST /api/quotes          same, one reply at the end
 GET  /api/quotes?q=VBK    saved comparisons
 GET  /api/quotes/:id      one saved comparison
+GET  /api/quotes/:id/pdf  one-page comparison PDF (?ids=insurer-a,insurer-b)
 GET  /api/providers       panel insurers
 ```
 

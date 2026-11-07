@@ -4,12 +4,15 @@ import { compareStream, rank } from './engine/compare.js';
 import { demoLookup } from './engine/lookup.js';
 import { PROVIDERS } from './engine/providers-config.js';
 import { VEHICLES, estimateValue } from './data/vehicles.js';
+import { quotationHtml } from './quotation.js';
 
 // Shown on the printed quotation. Change to your agency's details.
 const AGENCY = {
   name: 'Your Agency Sdn Bhd',
   line: 'Authorised agent for panel insurers & takaful operators',
   contact: 'Tel 03-0000 0000 · hello@youragency.my',
+  agent: 'Your insurance advisor',
+  color: '#0b5cad',
 };
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -243,12 +246,14 @@ function renderFinal(r) {
     <div class="offers">${r.results.map((o, i) => offerCard(o, i, true)).join('')}</div>
     <div class="card share no-print">
       <span class="muted">Tick the offers to show the customer, then:</span>
-      <button class="primary" id="print">Print / save PDF</button>
+      <button class="primary" id="print">Print</button>
+      ${serverOnline ? '<a id="pdf" class="btn" target="_blank" rel="noopener">Download PDF</a>' : ''}
       <a id="wa" class="btn" target="_blank" rel="noopener">WhatsApp</a>
       <button id="copy">Copy text</button>
     </div>`;
 
-  $('#print').onclick = () => { buildPrint(); window.print(); };
+  $('#print').onclick = printQuotation;
+  if ($('#pdf')) $('#pdf').onclick = () => { $('#pdf').href = `api/quotes/${r.id}/pdf?ids=${selected().map((o) => o.providerId).join(',')}`; };
   $('#copy').onclick = async () => {
     try { await navigator.clipboard.writeText(shareText()); flash('#copy', 'Copied'); } catch { flash('#copy', 'Copy blocked'); }
   };
@@ -318,33 +323,14 @@ function shareText() {
   return lines.join('\n');
 }
 
-function buildPrint() {
-  const { owner, vehicle, cover } = current.request;
-  const offers = selected();
-  const addonNames = Object.entries(cover.addons).filter(([, v]) => v).map(([k]) => ADDONS[k]?.label).filter(Boolean);
-  const row = (label, fn) => `<tr><th>${label}</th>${offers.map((o) => `<td>${fn(o)}</td>`).join('')}</tr>`;
-  $('#print-sheet').innerHTML = `
-    <div class="ps-head"><div><h1>${esc(AGENCY.name)}</h1><p>${esc(AGENCY.line)}</p><p>${esc(AGENCY.contact)}</p></div>
-      <div class="ps-ref"><b>MOTOR QUOTATION</b><br>Ref ${esc(current.id)}<br>${new Date(current.createdAt).toLocaleDateString('en-MY')}</div></div>
-    <table class="ps-info">
-      <tr><th>Customer</th><td>${esc(owner.name || owner.nric)}</td><th>Vehicle</th><td>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year} · ${vehicle.cc}cc</td></tr>
-      <tr><th>Cover</th><td>${COVER_TYPES[cover.coverType]}</td><th>Sum insured</th><td>${cover.coverType === 'tp' ? '—' : rm(cover.sumInsured) + ` (${cover.valueBasis} value)`}</td></tr>
-      <tr><th>NCD</th><td>${cover.ncd}%</td><th>Add-ons</th><td>${esc(addonNames.join(', ') || 'None')}</td></tr>
-    </table>
-    <table class="ps-compare">
-      <tr><th></th>${offers.map((o) => `<th>${esc(o.provider)}<br><small>${o.kind === 'takaful' ? 'Takaful' : 'Insurance'}</small></th>`).join('')}</tr>
-      ${cover.coverType !== 'tp' ? row('Sum insured', (o) => rm(o.sumInsured)) : ''}
-      ${row('Basic premium', (o) => rm(o.basic))}
-      ${row('Less NCD', (o) => '− ' + rm(o.ncdAmount))}
-      ${row('Add-ons', (o) => rm(o.addonTotal))}
-      ${row('Gross premium', (o) => rm(o.gross))}
-      ${row('SST 8%', (o) => rm(o.sst))}
-      ${row('Stamp duty', (o) => rm(o.stampDuty))}
-      ${row('<b>Total payable</b>', (o) => `<b>${rm(o.total)}</b>`)}
-      ${row('Excess', (o) => (o.excess ? rm(o.excess) : 'Nil'))}
-      ${row('Highlights', (o) => (o.benefits || []).map(esc).join('<br>'))}
-    </table>
-    <p class="ps-foot">This quotation is valid for 14 days and is subject to the insurer's / takaful operator's underwriting acceptance, verification of NCD with ISM, and the policy terms. Premiums include 8% SST and RM10 stamp duty.</p>`;
+// Prints the one-page comparison from a hidden frame so it keeps its own layout.
+function printQuotation() {
+  const ids = selected().map((o) => o.providerId);
+  const frame = document.createElement('iframe');
+  frame.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0';
+  frame.srcdoc = quotationHtml(current, { agency: AGENCY, ids });
+  frame.onload = () => { frame.contentWindow.print(); setTimeout(() => frame.remove(), 60000); };
+  document.body.append(frame);
 }
 
 function flash(sel, text) {
