@@ -111,6 +111,14 @@ Needs: `ALLIANZ_PORTAL_USER`, `ALLIANZ_PORTAL_PASS`, `ALLIANZ_PORTAL_SECRET` (th
 
 Every bot's slip is also checked against what was asked for: a requested add-on missing from the insurer's quotation is flagged (from the agency's `audit_and_sync_quote`).
 
+### Takaful Ikhlas
+
+`providers/rpa/bots/ikhlas.js` fills the Financial-Link "New Business" form with the same field names as the agency's script. It handles Black List Checking, renewal dates from the previous expiry, the ISM "Proposed Sum Covered" pop-up, NCD Enquiry (NCD 001 = already renewed elsewhere), Add Extra Benefit (windscreen `WSC`, flood `EP057`) and Get A Quote. **The price is read from Ikhlas's own quotation slip**; the bot never works out a contribution itself. If the slip doesn't appear, the quote fails.
+
+The underwriting questions (claims in the last 3 years, traffic offences, driving experience, race, religion, occupation) come from **Driver details** on the form. If any are missing, Ikhlas is skipped with a message saying which. Customers with claims or offences are quoted by hand, so those details are entered properly. If the sum covered is outside Ikhlas's range, the bot retries with the nearest allowed amount and flags it.
+
+Login: `IKHLAS_PORTAL_USER`, `IKHLAS_PORTAL_PASS` (the old `TAKAFUL_USERNAME` / `TAKAFUL_PASSWORD`).
+
 ### Paste a WhatsApp message
 
 On the quote form, **Paste WhatsApp message** reads plate, IC / passport / company number, name, phone, email, address and postcode, model and year, and add-ons (windscreen, flood, e-hailing), in English or Malay, and fills the form. It is ported from the agency's `parse_customer_message`, but leaves anything not in the message empty for staff to fill instead of filling in a default.

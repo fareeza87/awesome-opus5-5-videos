@@ -118,9 +118,9 @@ details ul, .benefits { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
   .brand .full { display: none; }
 }
 
-details#vehDetails { margin: 14px 0 4px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
-details#vehDetails summary { cursor: pointer; font-weight: 600; font-size: 14px; }
-details#vehDetails[open] summary { margin-bottom: 6px; }
+details#drvDetails, details#vehDetails { margin: 14px 0 4px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+details#drvDetails summary, details#vehDetails summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+details#drvDetails[open] summary, details#vehDetails[open] summary { margin-bottom: 6px; }
 .small { font-size: 12.5px; margin: 0 0 10px; }
 input[data-auto], select[data-auto] { background: color-mix(in srgb, var(--good) 8%, var(--input)); }
 .found { margin-top: 6px; font-size: 13px; color: var(--good); }

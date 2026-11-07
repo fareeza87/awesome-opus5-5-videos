@@ -86,6 +86,7 @@ $('#demo').addEventListener('click', () => {
   form.address.value = 'No 12, Jalan SS2/24, Petaling Jaya';
   form.email.value = 'ahmad@example.com';
   form.pdpaConsent.checked = true;
+  form.claims3y.value = '0'; form.drivingExp.value = 12; form.violations.value = 'none'; form.occupation.value = 'Engineer'; form.race.value = 'Malay'; form.religion.value = 'Islam';
 });
 
 // ---------- Tabs ----------
@@ -104,7 +105,8 @@ function readForm() {
   const addons = {};
   f.querySelectorAll('input[name=addon]').forEach((c) => { addons[c.value] = c.checked; });
   return {
-    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), email: f.email.value.trim(), pdpaConsent: f.pdpaConsent.checked, postcode: f.postcode.value.trim(), address: f.address.value.trim() },
+    owner: { idType: f.idType.value, nric: f.nric.value.trim(), name: f.name.value.trim(), phone: f.phone.value.trim(), email: f.email.value.trim(), pdpaConsent: f.pdpaConsent.checked, postcode: f.postcode.value.trim(), address: f.address.value.trim(),
+      claims3y: f.claims3y.value, drivingExp: f.drivingExp.value, violations: f.violations.value, occupation: f.occupation.value.trim(), race: f.race.value, religion: f.religion.value },
     vehicle: {
       regNo: f.regNo.value.trim().toUpperCase().replace(/\s+/g, ' '),
       make: f.make.value.trim() || undefined, model: f.model.value.trim() || undefined,

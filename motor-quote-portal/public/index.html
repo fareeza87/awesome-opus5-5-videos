@@ -66,6 +66,27 @@
         <p class="muted small" style="align-self:end">Insurers that sell annual only (e.g. Allianz, Generali) are quoted annual and flagged.</p>
       </div>
 
+      <details id="drvDetails">
+        <summary>Driver details <span class="muted">· asked by some insurers (e.g. Takaful Ikhlas)</span></summary>
+        <p class="muted small">Answers go to the insurer as given. Ask the customer; don't guess.</p>
+        <div class="grid">
+          <label>Claims in last 3 years
+            <select name="claims3y" id="claims3y"><option value="">Not asked</option><option>0</option><option>1</option><option>2</option><option value="3">3 or more</option></select>
+          </label>
+          <label>Driving experience (years)<input name="drivingExp" id="drivingExp" type="number" min="0" max="70"></label>
+          <label>Traffic offences (3 years)
+            <select name="violations" id="violations"><option value="">Not asked</option><option value="none">None</option><option value="yes">Yes</option></select>
+          </label>
+          <label>Occupation<input name="occupation" id="occupation" placeholder="e.g. Clerk, Engineer"></label>
+          <label>Race
+            <select name="race" id="race"><option value="">Not asked</option><option>Malay</option><option>Chinese</option><option>Indian</option><option>Others</option></select>
+          </label>
+          <label>Religion
+            <select name="religion" id="religion"><option value="">Not asked</option><option>Islam</option><option>Buddhism</option><option>Christianity</option><option>Hinduism</option><option>Others</option></select>
+          </label>
+        </div>
+      </details>
+
       <details id="vehDetails">
         <summary>Vehicle, NCD &amp; sum insured <span class="muted" id="vehHint">· auto from ISM lookup</span></summary>
         <p class="muted small">Leave blank and the bot fills these in from the insurer's ISM enquiry. Type a value only to override it. The same sum insured is sent to every insurer.</p>
