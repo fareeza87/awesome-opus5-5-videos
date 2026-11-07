@@ -1,0 +1,12 @@
+{
+  "name": "motor-quote-portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Compare Malaysian motor insurance / takaful quotations across panel insurers in one form",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=18" }
+}

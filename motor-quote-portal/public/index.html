@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor Quote Compare</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar no-print">
+  <div class="brand"><span class="logo">MQ</span> <span>Motor Quote<span class="full"> Compare</span></span></div>
+  <nav>
+    <button class="tab active" data-tab="quote">New quote</button>
+    <button class="tab" data-tab="history">History</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-quote" class="layout">
+    <form id="quote-form" class="card no-print" autocomplete="off">
+      <h2>1 · Customer</h2>
+      <div class="grid">
+        <label>Full name<input name="name" required placeholder="As per NRIC"></label>
+        <label>NRIC no.<input name="nric" required placeholder="900101-14-5678" inputmode="numeric"></label>
+        <label>Phone<input name="phone" placeholder="012-345 6789" inputmode="tel"></label>
+        <label>Postcode<input name="postcode" required pattern="\d{5}" maxlength="5" placeholder="50450" inputmode="numeric"></label>
+      </div>
+
+      <h2>2 · Vehicle</h2>
+      <div class="grid">
+        <label>Registration no.<input name="regNo" required placeholder="WXY 1234" style="text-transform:uppercase"></label>
+        <label class="span2">Quick pick
+          <select name="pick" id="pick"><option value="">— Choose a common model or type below —</option></select>
+        </label>
+        <label>Make<input name="make" placeholder="Perodua"></label>
+        <label>Model<input name="model" placeholder="Myvi 1.5"></label>
+        <label>Year made<input name="year" type="number" required min="1980" placeholder="2021"></label>
+        <label>Engine cc<input name="cc" type="number" required min="50" placeholder="1496"></label>
+        <label>Seats<input name="seats" type="number" min="2" max="15" value="5"></label>
+      </div>
+
+      <h2>3 · Cover</h2>
+      <div class="grid">
+        <label>Cover type
+          <select name="coverType">
+            <option value="comprehensive">Comprehensive</option>
+            <option value="tpft">Third Party, Fire &amp; Theft</option>
+            <option value="tp">Third Party only</option>
+          </select>
+        </label>
+        <label>Sum insured (RM)<input name="sumInsured" type="number" min="1000" step="500" placeholder="44000"></label>
+        <label>Value basis
+          <select name="valueBasis"><option value="market">Market value</option><option value="agreed">Agreed value</option></select>
+        </label>
+        <label>NCD
+          <select name="ncd">
+            <option value="0">0%</option><option value="25">25%</option><option value="30">30%</option>
+            <option value="38.33">38.33%</option><option value="45">45%</option><option value="55" selected>55%</option>
+          </select>
+        </label>
+      </div>
+
+      <h3>Add-ons</h3>
+      <div class="chips" id="addons"></div>
+      <div class="grid">
+        <label>Windscreen cover (RM)<input name="windscreenSI" type="number" min="0" step="100" placeholder="1500"></label>
+        <label>Extra named drivers<input name="namedDrivers" type="number" min="0" max="10" value="0"></label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="go">Compare all insurers</button>
+        <button type="button" id="demo" class="ghost">Fill sample</button>
+        <button type="reset" class="ghost">Clear</button>
+      </div>
+      <p class="errors" id="errors" role="alert"></p>
+    </form>
+
+    <section id="results" class="results">
+      <div class="empty card no-print">
+        <p><strong>Fill in the customer once.</strong> Every panel insurer is asked at the same time, and the results come back side by side here.</p>
+      </div>
+    </section>
+  </section>
+
+  <section id="tab-history" class="card hidden no-print">
+    <div class="history-head">
+      <h2>Saved comparisons</h2>
+      <input id="history-search" placeholder="Search name, NRIC or plate">
+    </div>
+    <div id="history-list"></div>
+  </section>
+</main>
+
+<div id="print-sheet" class="print-only"></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
