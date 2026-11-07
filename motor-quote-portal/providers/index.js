@@ -5,7 +5,7 @@
 //   api     – insurer's agency API, if they offer one
 import { rateQuote } from '../public/engine/rate.js';
 import { demoLookup } from '../public/engine/lookup.js';
-import { PROVIDERS as CONFIGURED } from '../public/engine/providers-config.js';
+import { PROVIDERS as CONFIGURED, PANEL } from '../public/engine/providers-config.js';
 import { quoteViaApi } from './api-connector.js';
 import { quoteViaWebhook } from './webhook-connector.js';
 import { quoteViaRpa, lookupViaRpa } from './rpa/index.js';
@@ -31,7 +31,16 @@ const RPA_DEMO = process.env.RPA_DEMO === '1' ? [
     rpa: { bot: 'allianz', defaultUrl: `http://localhost:${PORT}/mock-portal/allianz/`, defaultUser: 'agent01', defaultPass: 'demo123', defaultSecret: 'blue' } },
 ] : [];
 
-export const PROVIDERS = [...RPA_DEMO, ...CONFIGURED.filter((p) => p.enabled !== false)];
+// Real insurers switched on with INSURERS=po,allianz,ikhlas (in .env).
+const wanted = String(process.env.INSURERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const unknown = wanted.filter((id) => !PANEL.some((p) => p.id === id));
+if (unknown.length) console.warn(`INSURERS: unknown insurer id(s) ${unknown.join(', ')}. Known: ${PANEL.map((p) => p.id).join(', ')}`);
+const REAL = PANEL.filter((p) => wanted.includes(p.id)).map((p) => ({ ...p, enabled: true }));
+const showDemo = process.env.DEMO_INSURERS !== undefined ? process.env.DEMO_INSURERS === '1' : !REAL.length;
+
+export const PROVIDERS = [...REAL, ...RPA_DEMO, ...(showDemo ? CONFIGURED.filter((p) => p.enabled !== false) : [])];
+// Demo pricing needs full vehicle details; real portals look the car up themselves.
+export const USES_DEMO_PRICING = PROVIDERS.some((p) => p.mode === 'demo');
 
 // Portals that shut at night, e.g. P&O is off from 9pm to 5am.
 //   hours: { closed: ['21:00', '05:00'] }   (Malaysia time)
@@ -63,6 +72,8 @@ export async function lookupVehicle(req) {
   const src = PROVIDERS.find((p) => p.lookupSource);
   if (src?.mode === 'rpa') return { source: src.name, ...(await lookupViaRpa(src, req)) };
   if (src?.mode === 'webhook') return { source: src.name, ...(await quoteViaWebhook(src, req, 'lookup')) };
+  // Only demo insurers may use the made-up demo lookup.
+  if (!USES_DEMO_PRICING) return null;
   const found = demoLookup(req);
   if (!found) throw new Error('Plate number not recognised');
   return { source: 'Demo lookup', ...found };

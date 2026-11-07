@@ -20,13 +20,17 @@ export async function compareStream(req, providers, quoteOne, { lookup, onEvent 
     if (!lookup) return fail(['Vehicle details are missing']);
     try {
       const found = await lookup(req);
-      req = applyLookup(req, found);
-      onEvent({ type: 'lookup', found, request: req, ms: Date.now() - started });
+      // null: no lookup available; each insurer portal looks the car up itself.
+      if (found) {
+        req = applyLookup(req, found);
+        onEvent({ type: 'lookup', found, request: req, ms: Date.now() - started });
+      }
     } catch (e) {
       return fail([`Vehicle lookup failed: ${e.message}. Fill in the vehicle details by hand.`]);
     }
   }
-  const errors = validateRequest(req);
+  // Demo pricing needs the full vehicle details; real portals only need the basics.
+  const errors = providers.some((p) => p.mode === 'demo') ? validateRequest(req) : validateBasics(req);
   if (errors.length) return fail(errors);
 
   onEvent({ type: 'start', providers: providers.map(({ id, name, kind, mode }) => ({ id, name, kind, mode })) });
@@ -44,7 +48,19 @@ export async function compareStream(req, providers, quoteOne, { lookup, onEvent 
     return r;
   }));
 
-  const result = { ok: true, ms: Date.now() - started, createdAt: new Date().toISOString(), request: req, results: rank(results) };
+  // Real portals found the car themselves: fill blanks from the cheapest slip,
+  // so the comparison and quotation show what the insurers quoted on.
+  const ranked = rank(results);
+  const best = ranked.find((r) => r.status === 'quoted');
+  if (best) {
+    const v = best.vehicle || {};
+    req = {
+      ...req,
+      vehicle: { ...req.vehicle, year: req.vehicle.year || v.year, model: req.vehicle.model || v.makeModel },
+      cover: { ...req.cover, sumInsured: req.cover.sumInsured || best.sumInsured, ncd: req.cover.ncd === '' || req.cover.ncd === undefined ? best.ncdPercent : req.cover.ncd },
+    };
+  }
+  const result = { ok: true, ms: Date.now() - started, createdAt: new Date().toISOString(), request: req, results: ranked };
   return result;
 
   function fail(errs) { onEvent({ type: 'error', errors: errs }); return { ok: false, errors: errs }; }

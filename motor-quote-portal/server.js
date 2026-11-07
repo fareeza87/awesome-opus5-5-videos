@@ -6,6 +6,7 @@
 //   GET  /api/quotes?q=          saved comparisons
 //   GET  /api/quotes/:id         one saved comparison
 //   /mock-portal/*               practice insurer portal for testing RPA bots
+import './load-env.js'; // must be first: settings are read by the modules below
 import http from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
