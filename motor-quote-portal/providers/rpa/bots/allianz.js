@@ -227,7 +227,7 @@ export default {
     const pdf = await readFile(tmp);
     if (pdf.subarray(0, 5).toString() !== '%PDF-') throw new Error('Allianz e-Quotation download is not a PDF');
 
-    const slip = await parseSlipPdf(pdf, { filename: 'allianz.pdf' });
+    const slip = await parseSlipPdf(pdf, { filename: 'allianz.pdf', expectInsurer: 'allianz' });
     if (slip.status === 'error') throw new Error(`Allianz e-Quotation: ${slip.reasons.join('; ')}`);
     await mkdir(SLIPS, { recursive: true });
     const file = `${plate}_ALLIANZ_${slip.insurerRef || Date.now()}.pdf`;
@@ -238,7 +238,7 @@ export default {
       ...figures,
       status: 'quoted',
       coverType,
-      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...auditAddons(cover, slip)],
+      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...slip.notes, ...auditAddons(cover, slip)],
       slipFile: file,
       benefits: ['Official Allianz e-Quotation saved'],
     };

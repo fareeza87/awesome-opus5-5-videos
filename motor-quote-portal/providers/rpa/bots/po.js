@@ -210,7 +210,7 @@ export default {
     const pdf = await popup.pdf({ format: 'A4', printBackground: true });
     await popup.close();
 
-    const slip = await parseSlipPdf(pdf, { filename: 'po.pdf' });
+    const slip = await parseSlipPdf(pdf, { filename: 'po.pdf', expectInsurer: 'po' });
     if (slip.status === 'error') throw new Error(`P&O slip: ${slip.reasons.join('; ')}`);
     await mkdir(SLIPS, { recursive: true });
     const file = `${plate}_PO_${slip.insurerRef || Date.now()}.pdf`;
@@ -222,7 +222,7 @@ export default {
       status: 'quoted',
       coverType,
       siNote,
-      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...auditAddons(cover, slip)],
+      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...slip.notes, ...auditAddons(cover, slip)],
       slipFile: file,
       benefits: ['Official P&O quotation slip saved'],
     };

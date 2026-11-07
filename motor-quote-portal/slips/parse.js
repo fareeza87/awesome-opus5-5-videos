@@ -39,27 +39,42 @@ const L = {
   notAddon: /trailer|net basic|total extra coverage|additional coverage|^\s*total\s*:|loading|rebate|gst|^\s*\+ extra coverage\s/i,
 };
 
-export async function parseSlipPdf(data, { filename = '', today = new Date() } = {}) {
-  return parseSlipLines(await pdfLines(data), { filename, today });
+export async function parseSlipPdf(data, { filename = '', today = new Date(), expectInsurer } = {}) {
+  return parseSlipLines(await pdfLines(data), { filename, today, expectInsurer });
 }
 
-export function parseSlipLines(lines, { filename = '', today = new Date() } = {}) {
+const SST_RATE = Number(globalThis.process?.env?.SST_RATE ?? 0.08);
+
+// expectInsurer: the insurer a bot was quoting. A slip from any other insurer
+// (e.g. an old file picked up by mistake) is rejected, not read.
+export function parseSlipLines(lines, { filename = '', today = new Date(), expectInsurer } = {}) {
   const text = lines.join('\n');
   const found = INSURERS.find(([, re]) => re.test(text))
     || INSURERS.find(([id]) => new RegExp(`(^|[^a-z])${id}([^a-z]|$)`, 'i').test(filename))
     || (/ƽƽƽ/.test(text) ? INSURERS.find(([id]) => id === 'msig') : null);
   const [providerId, , provider, kind] = found || ['unknown', null, 'Unknown insurer', 'conventional'];
+  if (expectInsurer && providerId !== expectInsurer) {
+    const want = INSURERS.find(([id]) => id === expectInsurer)?.[2] || expectInsurer;
+    return { status: 'error', providerId, provider, kind, reasons: [`This PDF is ${found ? `a ${provider}` : 'not a recognised'} quotation, not ${want}`] };
+  }
 
   const q = providerId === 'msig' && !/basic/i.test(text) ? readByPosition(lines) : readByLabels(lines);
-  if (!q) return { status: 'error', providerId, provider, kind, reasons: ['Could not find the premium figures on this slip'] };
+  if (!q) {
+    const why = !/total|payable|amount due/i.test(text) ? 'No total payable found on this slip' : 'Could not find the premium figures on this slip';
+    return { status: 'error', providerId, provider, kind, reasons: [why] };
+  }
 
   const checks = [];
+  const notes = [];
   const addonTotal = r2(q.gross - q.basic + q.ncdAmount - (q.loading || 0) + (q.discount || 0));
   if (q.addonItems.length && !close(q.addonItems.reduce((s, a) => s + a.amount, 0), addonTotal)) q.addonItems = [];
   // Slips whose add-on names can't be read (MSIG): show one combined line.
   if (q.addonItems.length > 1 && q.addonItems.every((a) => a.label === 'Extra coverage')) q.addonItems = [];
   const addons = q.addonItems.length ? q.addonItems : (addonTotal > 0.005 ? [{ key: 'extra', label: 'Extra coverage', amount: addonTotal }] : []);
   if (addonTotal < -0.05) checks.push('Basic − NCD is more than gross: check the figures');
+  if (addonTotal > 0.005 && !q.addonItems.length) notes.push(`Add-ons of RM${addonTotal.toFixed(2)} are on this slip but not listed by name: check the slip`);
+  const sstDue = r2((q.gross - (q.discount || 0)) * SST_RATE);
+  if (!close(q.sst, sstDue) && !close(q.sst, r2(q.gross * SST_RATE))) checks.push(`Service tax RM${q.sst.toFixed(2)} is not ${SST_RATE * 100}% of gross (RM${sstDue.toFixed(2)})`);
   if (!close(q.gross - (q.discount || 0) + q.sst + q.stamp, q.total) && !close(q.gross + q.sst + q.stamp, q.total)) {
     checks.push(`Gross + tax + stamp duty = ${r2(q.gross + q.sst + q.stamp)} but slip total is ${q.total}`);
   }
@@ -87,6 +102,7 @@ export function parseSlipLines(lines, { filename = '', today = new Date() } = {}
     referred: /\bREFERRED\b/.test(text),
     vehicle: vehicleInfo(lines),
     checks,
+    notes,
     reasons: checks,
   };
 }
@@ -152,6 +168,17 @@ function readByLabels(lines) {
     addonItems.push({ key: 'extra', label: tidyLabel(l), amount: v });
   }
 
+  // Some slips (e.g. Takaful Ikhlas) list add-ons in their own section above
+  // the price block: "Extra-Benefits : WINDSCREEN ( RM 1,000.00 ) 150.00".
+  if (!addonItems.length) {
+    const h = lines.findIndex((l) => /extra[- ]?benefits?|perlindungan tambahan/i.test(l));
+    for (let i = h + 1; h >= 0 && i < Math.min(lines.length, h + 15); i++) {
+      const l = lines[i];
+      if (L.basic.test(l) || /contribution detail|premium detail|^\s*schedule/i.test(l)) break;
+      const v = lastMoney(l);
+      if (v !== undefined && v > 0 && /[a-z]{3}/i.test(l) && !L.notAddon.test(l)) addonItems.push({ key: 'extra', label: tidyLabel(l), amount: v });
+    }
+  }
   return { basic, ncdPercent, ncdAmount, loading, gross, discount, sst, stamp, total, addonItems, sum: sumInsured(lines), excess: excessOf(lines) };
 }
 

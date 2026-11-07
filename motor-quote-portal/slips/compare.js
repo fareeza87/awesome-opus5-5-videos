@@ -12,7 +12,7 @@ export function comparisonFromSlips(slips, customer = {}) {
   const [make, ...model] = String(v.makeModel || '').split(' ');
 
   const results = slips.map((s, i) => {
-    const r = { ...s, providerId: `${s.providerId}-${i}`, mode: 'slip', ms: 0 };
+    const r = { ...s, providerId: `${s.providerId}-${i}`, mode: 'slip', ms: 0, notes: [...(s.notes || [])] };
     if (r.status === 'check') { r.status = 'quoted'; r.notes = [...(r.notes || []), ...s.checks.map((c) => `Check slip: ${c}`)]; }
     if (si && s.sumInsured && s.sumInsured !== si) r.siNote = `Quoted at sum insured RM${s.sumInsured.toLocaleString()}, others at RM${si.toLocaleString()}`;
     return r;
