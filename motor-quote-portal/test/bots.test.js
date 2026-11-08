@@ -68,7 +68,7 @@ test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright &&
       const c = await quote(port, { owner: { ...owner, pdpaConsent: false }, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', addons: {} } }, 'mock-allianz');
       assert.match(c.reasons[0], /privacy notice/);
     });
-    await t.test('Takaful Ikhlas: price from Ikhlas slip, add-ons, range retry, NCD 001, missing answers', async () => {
+    await t.test('Takaful Ikhlas: price from Ikhlas slip, add-ons, range retry, NCD 001, blank answers use agency defaults', async () => {
       const x = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', windscreenSI: 1500, addons: { windscreen: true, specialPerils: true } } }, 'mock-ikhlas');
       assert.equal(x.status, 'quoted', JSON.stringify(x.reasons));
       assert.deepEqual(x.addons.map((a) => a.label), ['Windscreen', 'Special Perils']);
@@ -80,7 +80,7 @@ test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright &&
       const e = await quote(port, { owner, vehicle: { regNo: 'EAA 1234' }, cover: { coverType: 'comprehensive', ncd: 25, sumInsured: 50000, addons: {} } }, 'mock-ikhlas');
       assert.match(e.reasons[0], /NCD 001/);
       const m = await quote(port, { owner: { ...owner, race: '', claims3y: '' }, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', addons: {} } }, 'mock-ikhlas');
-      assert.match(m.reasons[0], /claims in last 3 years.*race/);
+      assert.equal(m.status, 'quoted', JSON.stringify(m.reasons)); // blank race and claims: agency defaults (Others, 0)
     });
   } finally {
     const exited = new Promise((r) => srv.on('exit', r));

@@ -13,6 +13,7 @@ import { parseSlipPdf } from '../../../slips/parse.js';
 import { auditAddons } from '../../../slips/audit.js';
 import { splitAddress } from './my-address.js';
 
+const SHOTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'rpa-errors');
 const SLIPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'slips');
 const TPFT_BEFORE_YEAR = Number(process.env.TPFT_BEFORE_YEAR || 2012);
 
@@ -28,10 +29,11 @@ async function formFrame(page, selector, ms = 15000) {
 async function pickOption(frame, name, test) {
   const sel = frame.locator(`select[name='${name}']`).first();
   if (!(await sel.count())) return null;
-  const opts = await sel.locator('option').evaluateAll((os) => os.map((o) => ({ v: o.value, t: o.textContent.trim() })));
-  const hit = opts.find((o) => o.v && test(o.t.toUpperCase(), o.v));
+  const opts = await sel.locator('option').evaluateAll((os) => os.map((o, i) => ({ i, v: o.value, t: o.textContent.trim() })));
+  const hit = opts.find((o) => o.v && !/^-\s*SELECT/i.test(o.t) && test(o.t.toUpperCase(), o.v));
   if (!hit) return null;
-  await sel.selectOption(hit.v);
+  // By position: some lists give "- SELECT -" and "0" the same value.
+  await sel.selectOption({ index: hit.i });
   return hit.t;
 }
 const fill = async (frame, name, value) => {
@@ -132,8 +134,17 @@ export default {
     if (owner.phone) await fill(f, 'tphoneno', owner.phone.replace(/\D/g, ''));
 
     const occ = owner.occupation.toUpperCase();
-    const empl = /RETIRE/.test(occ) ? 'RETIRED' : /STUDENT/.test(occ) ? 'STUDENT' : /UNEMPLOY|HOUSE ?WIFE|SURI RUMAH/.test(occ) ? 'UNEMPLOYED' : /SELF|OWN BUSINESS|PENIAGA|BUSINESS ?OWNER/.test(occ) ? 'SELF EMPLOYED' : 'EMPLOYED';
-    await pickOption(f, 'emp_status', (t) => t === empl);
+    const empl = /RETIRE/.test(occ) ? 'RETIRED' : /STUDENT/.test(occ) ? 'STUDENT' : /UNEMPLOY/.test(occ) ? 'UNEMPLOYED' : /HOUSE ?WIFE|SURI RUMAH|HOMEMAKER/.test(occ) ? 'HOMEMAKER' : /SELF|OWN BUSINESS|PENIAGA|BUSINESS ?OWNER/.test(occ) ? 'SELF EMPLOYED' : 'EMPLOYED';
+    // Live portal labels: "Employed: Does not require usage of vehicle…", "Full Time Education (Student)", "Retired Persons", "Homemakers".
+    const empTests = {
+      EMPLOYED: (t) => t === 'EMPLOYED' || t.startsWith('EMPLOYED: DOES NOT'),
+      'SELF EMPLOYED': (t) => t === 'SELF EMPLOYED' || t.startsWith('EMPLOYED: DOES NOT'),
+      RETIRED: (t) => t.startsWith('RETIRED'),
+      STUDENT: (t) => t === 'STUDENT' || t.includes('STUDENT'),
+      UNEMPLOYED: (t) => t === 'UNEMPLOYED',
+      HOMEMAKER: (t) => t.startsWith('HOMEMAKER') || t === 'UNEMPLOYED',
+    };
+    if (!(await pickOption(f, 'emp_status', empTests[empl]))) notes.push('Employment status not set: check on the Ikhlas form');
     if (!(await pickOption(f, 'occupation', (t) => t === occ || t.includes(occ)))) {
       await pickOption(f, 'occupation', (t) => t === 'OTHERS');
       notes.push(`Occupation "${owner.occupation}" not in Ikhlas list: sent as Others`);
@@ -169,17 +180,33 @@ export default {
       }
     }
 
+    // Coverage first: the portal works out its tariff code a moment after the
+    // choice, and the market value button refuses until it has.
+    await pickOption(f, 'cover_type', (t) => t === { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY FIRE AND THEFT', tp: 'THIRD PARTY' }[cover.coverType]);
+    for (let i = 0; i < 20; i++) {
+      if (await f.evaluate(() => (document.getElementsByName('hidTariffCoverCode')[0]?.value ?? 'n/a') !== '').catch(() => true)) break;
+      await page.waitForTimeout(400);
+    }
+    await page.waitForTimeout(800);
     // ISM: Proposed Sum Covered pop-up. Pick the variant matching the model, else the first.
     // Close pop-ups left over from an earlier quote: the portal reuses a named window.
     for (const other of page.context().pages()) if (other !== page) await other.close().catch(() => {});
     const ism = f.locator("input[name='abibutton'], input[value*='Check for Proposed Sum Covered' i]").first();
     const [popup] = await Promise.all([page.context().waitForEvent('page', { timeout: 10000 }), ism.click()]);
     await popup.waitForLoadState('domcontentloaded');
-    const rows = popup.locator("tr[name='nvic_for_select']");
+    // Rows: named on the practice page, an onclick="initialize(…)" on the live one.
+    const rows = popup.locator("tr[name='nvic_for_select'], tr[onclick*='initialize']");
+    await rows.first().waitFor({ timeout: 10000 }).catch(() => {});
     if (!(await rows.count())) { await popup.close(); return { status: 'declined', reasons: ['Takaful Ikhlas: no ISM market value for this vehicle'] }; }
+    // Pick the variant: the form's model (e.g. "HR-V 1.5L S") ends with it.
+    const formModel = (await f.locator("select[name='model_ID'] option:checked, select[name='ismmodelcode'] option:checked").first().innerText().catch(() => '')).toUpperCase();
     const want = String(vehicle.model || '').toUpperCase();
-    const texts = await rows.allInnerTexts();
-    const idx = Math.max(0, want ? texts.findIndex((t) => t.toUpperCase().includes(want)) : 0);
+    const cells = await rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.trim().toUpperCase())));
+    const variantWord = formModel.split(/\s+/).pop();
+    let idx = cells.findIndex((c) => c.length > 6 && c[4] === variantWord);
+    if (idx < 0 && want) idx = cells.findIndex((c) => c.join(' ').includes(want));
+    if (idx < 0) { idx = 0; if (cells.length > 1) notes.push(`Ikhlas variant not matched: used ${cells[0].slice(1, 5).join(' ')}`); }
+    const style = cells[idx]?.[6] || '';
     // The row's click handler fills the form and closes the pop-up, so fire it from inside.
     await rows.nth(idx).evaluate((el) => el.click()).catch(() => {});
     await page.waitForTimeout(800);
@@ -188,9 +215,15 @@ export default {
     const year = Number(await f.locator("input[name='makeyear']").first().inputValue().catch(() => '')) || Number(vehicle.year);
     let coverType = cover.coverType;
     if (coverType === 'comprehensive' && year && year < TPFT_BEFORE_YEAR) { coverType = 'tpft'; notes.push(`Car made before ${TPFT_BEFORE_YEAR}: quoted Third Party, Fire & Theft`); }
-    await pickOption(f, 'cover_type', (t) => t === { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY FIRE AND THEFT', tp: 'THIRD PARTY' }[coverType]);
+    // Change coverage only if it differs: changing it resets the market value.
+    if (coverType !== cover.coverType) await pickOption(f, 'cover_type', (t) => t === { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY FIRE AND THEFT', tp: 'THIRD PARTY' }[coverType]);
 
     const model = (await f.locator("select[name='ismmodelcode'] option:checked").first().innerText().catch(() => '')).toUpperCase() + ' ' + want;
+    if (!(await f.locator("select[name='bodyID']").first().inputValue().catch(() => 'x')) && style) {
+      // Body from the ISM style, e.g. "4D WAGON", "5D HATCHBACK", "4D SEDAN".
+      const kind = /HATCH/.test(style) ? 'HATCHBACK' : /WAGON|SUV|UTILITY/.test(style) ? 'WAGON' : /MPV|VAN/.test(style) ? 'MPV' : /COUPE/.test(style) ? 'COUPE' : /PICK|PU\b/.test(style) ? 'PICK' : /SEDAN|SALOON/.test(style) ? 'SALOON' : '';
+      if (kind && !(await pickOption(f, 'bodyID', (t) => t.includes(kind) || (kind === 'SALOON' && t.includes('SEDAN'))))) notes.push(`Body "${style}" not in Ikhlas list: check it`);
+    }
     if (!(await f.locator("select[name='bodyID']").first().inputValue().catch(() => 'x'))) {
       const hatch = /MYVI|AXIA|YARIS|JAZZ|SWIFT|IRIZ|ALMERA HATCH|HATCHBACK/.test(model);
       await pickOption(f, 'bodyID', (t) => (hatch ? t.includes('HATCHBACK') : t.includes('SALOON') || t.includes('SEDAN')));
@@ -199,7 +232,12 @@ export default {
       const fuel = /\bEV\b|ELECTRIC|ATTO|DOLPHIN|TESLA|SEAL\b/.test(model) ? 'ELECTRIC' : /HYBRID|HEV\b/.test(model) ? 'HYBRID' : 'PETROL';
       await pickOption(f, 'vehfueltype', (t) => t.includes(fuel));
     }
-    if (cover.addons?.allDrivers) await pickOption(f, 'piamdrv', (t, v) => t.includes('ALL DRIVER') || v === '03');
+    // Permitted driver: All Drivers if asked for, named drivers if any, else the agency default.
+    if (!(await f.locator("select[name='piamdrv']").first().inputValue().catch(() => 'x'))) {
+      const pd = cover.addons?.allDrivers ? 'ALL DRIVERS' : Number(req.vehicle?.namedDrivers || cover.namedDrivers) > 1 ? 'SEVERAL NAMED' : (process.env.IKHLAS_PERMITTED_DRIVER || 'INSURED & ONE OTHER').toUpperCase();
+      const got = await pickOption(f, 'piamdrv', (t) => t.includes(pd));
+      if (got) notes.push(`Permitted driver: ${got}`);
+    } else if (cover.addons?.allDrivers) await pickOption(f, 'piamdrv', (t, v) => t.includes('ALL DRIVER') || v === '03');
 
     // Sum covered: the shared amount if given (the portal checks its own range).
     if (coverType !== 'tp' && cover.sumInsured) await fill(f, 'sum_insured', Math.round(cover.sumInsured));
@@ -242,17 +280,26 @@ export default {
     await ext.locator('#genQuotation').click();
 
     // Ikhlas's own slip: find it, print it to PDF, read it.
-    const slipFrame = await formFrame(page, 'text=/Takaful Contribution Payable|CONTRIBUTION DETAIL/i', 20000);
+    const slipFrame = await formFrame(page, 'text=/Takaful Contribution Payable|CONTRIBUTION DETAIL|Contribution Pricing/i', 20000);
     if (!slipFrame) throw new Error(`Takaful Ikhlas: no quotation slip after Get A Quote${page.__ikDialogs.length ? ` (${page.__ikDialogs.join(' | ')})` : ''}`);
-    const view = await page.context().newPage();
+    // The live slip is the answer to a form post, so print the page as it is;
+    // a slip in a sub-frame (practice portal) is opened on its own.
     let pdf;
-    try {
-      await view.goto(slipFrame.url(), { waitUntil: 'load' });
-      pdf = await view.pdf({ format: 'A4', printBackground: true });
-    } finally { await view.close(); }
+    if (slipFrame === page.mainFrame()) pdf = await page.pdf({ format: 'A4', printBackground: true });
+    else {
+      const view = await page.context().newPage();
+      try {
+        await view.goto(slipFrame.url(), { waitUntil: 'load' });
+        pdf = await view.pdf({ format: 'A4', printBackground: true });
+      } finally { await view.close(); }
+    }
 
     const slip = await parseSlipPdf(pdf, { filename: 'ikhlas.pdf', expectInsurer: 'ikhlas' });
-    if (slip.status === 'error') throw new Error(`Takaful Ikhlas slip: ${slip.reasons.join('; ')}`);
+    if (slip.status === 'error') {
+      await mkdir(SHOTS, { recursive: true });
+      await writeFile(path.join(SHOTS, `ikhlas-slip-${Date.now()}.pdf`), pdf);
+      throw new Error(`Takaful Ikhlas slip: ${slip.reasons.join('; ')}`);
+    }
     await mkdir(SLIPS, { recursive: true });
     const file = `${plate}_IKHLAS_${slip.insurerRef || Date.now()}.pdf`;
     await writeFile(path.join(SLIPS, file), pdf);

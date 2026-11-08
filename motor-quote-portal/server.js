@@ -96,6 +96,20 @@ function fillDefaults(body) {
   const used = [];
   if (!String(o.name || '').trim()) { o.name = DEFAULT_NAME; used.push(`name "${DEFAULT_NAME}"`); }
   if (!String(o.phone || '').trim()) { o.phone = DEFAULT_PHONE; used.push(`phone ${DEFAULT_PHONE}`); }
+  // Driver answers some insurers ask (e.g. Takaful Ikhlas), per the agency's defaults.
+  const ask = [
+    ['claims3y', process.env.DEFAULT_CLAIMS_3Y ?? '0', 'claims 0'],
+    ['violations', process.env.DEFAULT_OFFENCES ?? 'none', 'offences none'],
+    ['occupation', process.env.DEFAULT_OCCUPATION ?? 'Others', null],
+    ['drivingExp', process.env.DEFAULT_DRIVING_EXP ?? '5', null],
+    ['race', process.env.DEFAULT_RACE ?? 'Others', null],
+    ['religion', process.env.DEFAULT_RELIGION ?? 'Others', null],
+  ];
+  const driver = [];
+  for (const [k, v, label] of ask) {
+    if (v !== '' && (o[k] === undefined || o[k] === null || String(o[k]).trim() === '')) { o[k] = v; driver.push(label || `${k === 'drivingExp' ? 'driving experience' : k} ${v}`); }
+  }
+  if (driver.length) used.push(`driver details (${driver.join(', ')})`);
   if (!String(o.address || '').trim()) {
     const town = townFromPostcode(o.postcode);
     if (town) { o.address = town; used.push(`address "${town}" (from postcode)`); }

@@ -33,9 +33,9 @@ const L = {
   discount: /total discount|rebate/i,
   sst: /services? tax|\bsst\b/i,
   stamp: /stamp duty|duti setem/i,
-  total: /total (amount )?(payable|due)|total contribution|total payable|payable (premium|contribution)|amount due|takaful contribution payable|total premium \/ jumlah/i,
+  total: /total (amount )?(payable|due)|total gross due|^\s*\+?\s*gross due\b|total contribution|total payable|payable (premium|contribution)|amount due|takaful contribution payable|total premium \/ jumlah/i,
   rounded: /\(rounded\)|digenapkan/i,
-  sum: /sum (insured|covered)|estimate value|vehicle sum\b/i,
+  sum: /sum (insured|covered)|estimate value|vehicle sum\b|\bagreed value\s{2,}[\d,]+\.\d{2}/i,
   notAddon: /trailer|net basic|total extra coverage|additional coverage|^\s*total\s*:|loading|rebate|gst|^\s*\+ extra coverage\s/i,
 };
 
@@ -245,7 +245,9 @@ function vehicleInfo(lines) {
   const regNo = /(?:vehicle no\.?|registration no\.?(?: vehicle)?|vehicle registration no\.?)\s*[:]?\s*([A-Z]{1,3}\s?\d{1,4}\s?[A-Z]?)\b/i.exec(text)?.[1];
   const year = /year of manufactur\w*\s*[:/]?[^0-9\n]{0,30}(19\d{2}|20\d{2})/i.exec(text)?.[1];
   const make = /make (?:&|and) (?:model|type)[^:\n]*?\s{2,}([A-Z][^\n]{2,40}?)(?:\s{2,}|$)/i.exec(text)?.[1];
-  return { regNo, year: year && Number(year), makeModel: make?.trim() };
+  // A label that wrapped can pull in the next column's label instead of the model.
+  const makeModel = make && !/capacity|tonnage|^cubic/i.test(make) ? make.trim() : undefined;
+  return { regNo: regNo?.replace(/\s+/g, ' ').trim(), year: year && Number(year), makeModel };
 }
 
 function tidyLabel(line) {
