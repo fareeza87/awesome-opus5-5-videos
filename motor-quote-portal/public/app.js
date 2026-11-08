@@ -563,6 +563,8 @@ $('#pasteText').addEventListener('input', () => { clearTimeout(pasteTimer); past
 async function readFileIn(file) {
   if (!file) return;
   if (/^text\//.test(file.type)) { $('#pasteText').value = await file.text(); readText($('#pasteText').value); return; }
+  // The demo page has no server, so it cannot read documents: say so plainly.
+  if (window.MQ_DEMO) { intakeMsg('This demo page cannot read a grant or policy: that needs the real portal (office PC). Paste the WhatsApp message instead, or send the grant photo to Claude in chat.'); return; }
   intakeMsg('Reading the document… (a photo takes a few seconds)');
   try {
     const r = await fetch('api/documents', { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name || 'pasted-image.png') }, body: file });
