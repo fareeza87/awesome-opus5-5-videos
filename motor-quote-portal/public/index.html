@@ -19,6 +19,10 @@
 <main>
   <section id="tab-quote" class="layout">
     <form id="quote-form" class="card no-print" autocomplete="off">
+      <label class="snap" id="snapBtn">
+        <input type="file" id="docFile" accept="image/*,application/pdf" capture="environment">
+        <span>📷 Car grant / old policy</span><small class="muted" id="docMsg">Snap the geran or last year's policy to fill the form</small>
+      </label>
       <details class="paste" id="pasteBox">
         <summary>Paste WhatsApp message</summary>
         <textarea id="pasteText" rows="5" placeholder="Paste the customer's message: plate, IC, name, phone, address, add-ons…"></textarea>

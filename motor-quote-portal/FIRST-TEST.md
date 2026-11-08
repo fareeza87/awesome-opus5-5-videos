@@ -21,6 +21,7 @@ npx playwright install chromium
    - the login for that insurer (e.g. `PO_PORTAL_USER`, `PO_PORTAL_PASS`)
    - `VAULT_KEY=` any long random text
    - keep `RPA_HEADED=1` so you can watch the bot
+   - `PORTAL_PASSWORD=` a password for staff
 3. `.env` holds passwords: don't email it, WhatsApp it or put it on GitHub.
 
 ## 3. Run
@@ -29,11 +30,11 @@ npx playwright install chromium
 npm start
 ```
 
-Open http://localhost:3000 in Chrome.
+Open http://localhost:3000 in Chrome on that PC. On staff phones (same Wi-Fi), open the address the window shows after "Staff on the office Wi-Fi", e.g. `http://192.168.1.20:3000`. If phones can't open it, allow Node.js through Windows Firewall (Windows asks the first time; tick "Private networks").
 
 Use a real renewal you were going to quote anyway:
 
-1. Paste the customer's WhatsApp message, or type IC, plate, postcode, name, mobile and **address** (P&O needs it).
+1. Tap **📷 Car grant / old policy** and snap the geran, or paste the customer's WhatsApp message, or type IC, plate, postcode, name, mobile and **address** (P&O needs it).
 2. For Allianz: tick "Customer agreed to the privacy notice" and add the email.
 3. For Takaful Ikhlas: fill in **Driver details** (claims, offences, driving experience, race, religion, occupation).
 4. Click **Get quotes** and watch the bot's browser window.

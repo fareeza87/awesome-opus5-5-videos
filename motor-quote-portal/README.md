@@ -119,6 +119,14 @@ The underwriting questions (claims in the last 3 years, traffic offences, drivin
 
 Login: `IKHLAS_PORTAL_USER`, `IKHLAS_PORTAL_PASS` (the old `TAKAFUL_USERNAME` / `TAKAFUL_PASSWORD`).
 
+### Snap a car grant or old policy
+
+On the quote form, **📷 Car grant / old policy** opens the phone camera, or takes a PDF. It reads the plate, owner name, IC / company number, address and postcode, make and model, cc, year, chassis and engine number. From an old policy it also reads the sum insured and last year's NCD. Photos are read by OCR **on the portal computer itself** (tesseract.js, offline), so customer documents never leave the office. OCR can mix up look-alike characters (S/5, 1/I), so the portal reminds staff to check the plate, IC and numbers. Ported from the agency's `match_grant_or_policy`, with fixes: the insurer's own registration number is no longer taken as the customer's ID, the SST number is no longer read as a plate, and the plate is no longer read as the sum insured.
+
+### Staff on PCs and phones
+
+Run the portal on one office PC. When it starts, it prints the address staff open on the office Wi-Fi (e.g. `http://192.168.1.20:3000`). Set `PORTAL_PASSWORD` in `.env`: staff sign in once per device per day. Without it, anyone on the Wi-Fi could open customer data.
+
 ### Paste a WhatsApp message
 
 On the quote form, **Paste WhatsApp message** reads plate, IC / passport / company number, name, phone, email, address and postcode, model and year, and add-ons (windscreen, flood, e-hailing), in English or Malay, and fills the form. It is ported from the agency's `parse_customer_message`, but leaves anything not in the message empty for staff to fill instead of filling in a default.

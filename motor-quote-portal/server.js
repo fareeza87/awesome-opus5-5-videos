@@ -18,9 +18,12 @@ import { PROVIDERS, quoteOne, lookupVehicle } from './providers/index.js';
 import { handleMockPortal } from './mock-portal/index.js';
 import { closeAll, renderPdf } from './providers/rpa/pool.js';
 import { quotationHtml } from './public/quotation.js';
+import { authOn, isSignedIn, checkPassword, signInCookie, loginPage } from './auth.js';
+import { networkInterfaces } from 'node:os';
 import { otpEvents, listOtp, submitOtp, inboundSms } from './providers/rpa/otp.js';
 import { parseSlipPdf } from './slips/parse.js';
 import { comparisonFromSlips } from './slips/compare.js';
+import { readDocument, closeOcr } from './slips/grant.js';
 
 // Printed on every quotation. Change to your agency's details.
 const AGENCY = {
@@ -91,6 +94,21 @@ async function runQuote(body, staff, onEvent) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
+    // Staff sign-in. The SMS-forwarder endpoint has its own token; practice portals are for testing.
+    if (url.pathname === '/login') {
+      if (req.method === 'POST') {
+        const f = await readForm(req);
+        if (checkPassword(f.password)) { res.writeHead(302, { 'set-cookie': signInCookie(), location: '/' }); return res.end(); }
+        await new Promise((r) => setTimeout(r, 800)); // slow down guessing
+        res.writeHead(401, { 'content-type': 'text/html' }); return res.end(loginPage('Wrong password'));
+      }
+      res.writeHead(200, { 'content-type': 'text/html' }); return res.end(loginPage());
+    }
+    const open = url.pathname === '/api/otp/inbound' || url.pathname.startsWith('/mock-portal');
+    if (!open && !isSignedIn(req)) {
+      if (url.pathname.startsWith('/api/')) return send(res, 401, { error: 'Please sign in' });
+      res.writeHead(302, { location: '/login' }); return res.end();
+    }
     if (url.pathname.startsWith('/mock-portal')) return await handleMockPortal(req, res, url, readForm);
 
     if (url.pathname === '/api/providers') {
@@ -124,6 +142,15 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await parseSlipPdf(pdf, { filename }));
       } catch (e) {
         return send(res, 200, { status: 'error', provider: filename || 'Slip', reasons: [`Could not read this PDF: ${e.message}`] });
+      }
+    }
+    // Car grant (geran) or old policy: photo or PDF → form fields.
+    if (url.pathname === '/api/documents' && req.method === 'POST') {
+      const bytes = await readBytes(req);
+      try {
+        return send(res, 200, await readDocument(bytes, { filename: decodeURIComponent(req.headers['x-filename'] || '') }));
+      } catch (e) {
+        return send(res, 200, { error: `Could not read this file: ${e.message}` });
       }
     }
     // Several read slips → one saved comparison.
@@ -202,6 +229,10 @@ function summary(r) {
 
 server.listen(PORT, () => {
   console.log(`Motor quote portal on http://localhost:${PORT}`);
+  // Addresses staff phones and PCs on the same Wi-Fi can open.
+  const lan = Object.values(networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => `http://${i.address}:${PORT}`);
+  if (lan.length) console.log(`Staff on the office Wi-Fi: ${lan.join('  or  ')}`);
+  if (!authOn()) console.log('WARNING: no PORTAL_PASSWORD set. Anyone on the Wi-Fi can open the portal. Set it in .env.');
   console.log(`Insurers: ${PROVIDERS.map((p) => `${p.name} [${p.mode}]`).join(', ')}`);
 });
 
@@ -210,6 +241,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     server.close();
     await closeAll().catch(() => {});
+    await closeOcr().catch(() => {});
     process.exit(0);
   });
 }

@@ -152,6 +152,7 @@ async function streamQuotes(req, onEvent) {
     let res;
     try {
       res = await fetch('api/quotes/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) });
+      if (res.status === 401) { location.href = 'login'; return null; }
       if (!res.ok || !(res.headers.get('content-type') || '').includes('ndjson')) throw new Error();
     } catch { serverOnline = false; }
     if (serverOnline) {
@@ -399,6 +400,7 @@ async function loadHistory() {
   if (serverOnline) {
     try {
       const r = await fetch('api/quotes?q=' + encodeURIComponent(q));
+      if (r.status === 401) { location.href = 'login'; return; }
       if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error();
       rows = await r.json();
     } catch { serverOnline = false; }
@@ -455,6 +457,7 @@ async function addSlipFiles(files) {
     drawSlips();
     try {
       const r = await fetch('api/slips', { method: 'POST', headers: { 'content-type': 'application/pdf', 'x-filename': encodeURIComponent(file.name) }, body: file });
+      if (r.status === 401) { location.href = 'login'; return; }
       if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error(r.status === 404 ? 'Reading slips needs the portal server' : (await r.json()).error);
       Object.assign(row, { state: 'done', slip: await r.json() });
     } catch (e) {
@@ -494,6 +497,7 @@ $('#slipGo').addEventListener('click', async () => {
     customer: { name: $('#slipName').value.trim(), phone: $('#slipPhone').value.trim(), regNo: $('#slipPlate').value.trim().toUpperCase() },
   };
   const r = await fetch('api/slips/compare', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.status === 401) { location.href = 'login'; return; }
   if (!r.ok) return;
   current = await r.json();
   document.querySelector('.tab[data-tab=quote]').click();
@@ -501,19 +505,43 @@ $('#slipGo').addEventListener('click', async () => {
   $('#results').scrollIntoView({ behavior: 'smooth' });
 });
 
-// ---------- Paste a WhatsApp message ----------
-$('#pasteGo').addEventListener('click', () => {
-  const r = parseCustomerMessage($('#pasteText').value);
+// ---------- Paste a WhatsApp message / snap a document ----------
+function fillFromParsed(r) {
   const put = (name, v) => { if (v !== undefined && v !== '' && form[name]) { form[name].value = v; delete form[name].dataset.auto; } };
   put('idType', r.owner.idType); form.idType.dispatchEvent(new Event('change'));
   for (const k of ['nric', 'name', 'phone', 'email', 'postcode', 'address']) put(k, r.owner[k]);
   put('regNo', r.vehicle.regNo); put('year', r.vehicle.year); put('model', r.vehicle.model);
   put('coverType', r.cover.coverType); put('sumInsured', r.cover.sumInsured); put('windscreenSI', r.cover.windscreenSI);
   put('ehailingPeriod', r.cover.ehailingPeriod);
-  for (const [k, on] of Object.entries(r.cover.addons)) { const c = form.querySelector(`input[name=addon][value=${k}]`); if (c) c.checked = on; }
+  for (const [k, on] of Object.entries(r.cover.addons || {})) { const c = form.querySelector(`input[name=addon][value=${k}]`); if (c) c.checked = on; }
   showEh();
+  if (r.vehicle.cc) form.cc.value = r.vehicle.cc;
   const missing = ['plate', 'NRIC|passport no.|company reg. no.', 'postcode'].filter((need) => !r.found.some((f) => need.split('|').includes(f)));
-  $('#pasteMsg').textContent = r.found.length
+  return r.found.length
     ? `Filled: ${r.found.join(', ')}.${missing.length ? ` Still needed: ${missing.map((m) => m.split('|')[0]).join(', ')}.` : ''}`
-    : 'Nothing recognised in that message.';
+    : 'Nothing recognised.';
+}
+
+$('#pasteGo').addEventListener('click', () => {
+  $('#pasteMsg').textContent = fillFromParsed(parseCustomerMessage($('#pasteText').value));
+});
+
+$('#docFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const msg = $('#docMsg');
+  msg.textContent = 'Reading…';
+  try {
+    const r = await fetch('api/documents', { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name) }, body: file });
+    if (r.status === 401) { location.href = 'login'; return; }
+    if (!r.ok) throw new Error(r.status === 404 ? 'Reading documents needs the portal server' : `Server error ${r.status}`);
+    const d = await r.json();
+    if (d.error) { msg.textContent = d.error; return; }
+    const filled = fillFromParsed({ ...d.fields, found: d.found });
+    const ncd = d.fields.cover?.lastNcd !== undefined ? ` Last policy NCD: ${d.fields.cover.lastNcd}% (renewal NCD is checked by each insurer).` : '';
+    msg.textContent = `${d.docType === 'grant' ? 'Car grant' : 'Policy'}: ${filled}${ncd}${d.checks?.length ? ' ' + d.checks.join(' ') : ''}`;
+  } catch (err) {
+    msg.textContent = err.message;
+  }
 });

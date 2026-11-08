@@ -17,6 +17,8 @@
     "playwright": "^1.48.0"
   },
   "dependencies": {
-    "pdfjs-dist": "^4.10.38"
+    "@tesseract.js-data/eng": "^1.0.0",
+    "pdfjs-dist": "^4.10.38",
+    "tesseract.js": "^5.1.1"
   }
 }
