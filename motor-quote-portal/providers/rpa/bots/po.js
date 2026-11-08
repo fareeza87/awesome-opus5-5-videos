@@ -192,6 +192,9 @@ export default {
 
     // Extensions: M2 special perils (flood), M4/N4 windscreen.
     const tick = async (name, on) => { const b = await find(page, `input[name='${name}']`); if (b) await (on ? b.check() : b.uncheck()); };
+    // All drivers (agency rule: on unless switched off).
+    const allDrv = await find(page, "input[name='chkAllDriver']");
+    if (allDrv && cover.addons?.allDrivers !== undefined) await (cover.addons.allDrivers ? allDrv.check() : allDrv.uncheck()).catch(() => {});
     await tick('M2', cover.addons?.specialPerils);
     await tick('M4', cover.addons?.windscreen);
     if (cover.addons?.windscreen) await fillIf(page, "input[name='N4']", cover.windscreenSI || 1000);

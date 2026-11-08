@@ -43,7 +43,8 @@ pick.addEventListener('change', () => {
   form.sumInsured.value = estimateValue(v, Number(form.year.value));
 });
 
-const DEFAULT_ON = ['windscreen', 'specialPerils', 'srcc', 'llop'];
+// Agency rule: every quote has all drivers / waiver of compulsory excess unless staff untick it.
+const DEFAULT_ON = ['windscreen', 'specialPerils', 'srcc', 'llop', 'allDrivers', 'waiverExcess'];
 for (const [key, a] of Object.entries(ADDONS)) {
   $('#addons').insertAdjacentHTML('beforeend',
     `<label class="chip"><input type="checkbox" name="addon" value="${key}" ${DEFAULT_ON.includes(key) ? 'checked' : ''}><span>${esc(a.label)}</span></label>`);

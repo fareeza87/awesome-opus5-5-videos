@@ -125,6 +125,14 @@ function fillDefaults(body) {
     if (v !== '' && (o[k] === undefined || o[k] === null || String(o[k]).trim() === '')) { o[k] = v; driver.push(label || `${k === 'drivingExp' ? 'driving experience' : k} ${v}`); }
   }
   if (driver.length) used.push(`driver details (${driver.join(', ')})`);
+  // Agency rule: all drivers, or waiver of compulsory excess where an insurer
+  // has no all-drivers cover, on every quote unless the request says otherwise.
+  const c = (body.cover ||= {});
+  const addons = (c.addons ||= {});
+  if (process.env.DEFAULT_ALL_DRIVERS !== '0') {
+    if (addons.allDrivers === undefined) addons.allDrivers = true;
+    if (addons.waiverExcess === undefined) addons.waiverExcess = true;
+  }
   if (!String(o.address || '').trim()) {
     const town = townFromPostcode(o.postcode);
     if (town) { o.address = town; used.push(`address "${town}" (from postcode)`); }

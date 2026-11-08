@@ -390,14 +390,47 @@ export default {
     else await clickText(page, coverType === 'tpft' ? 'THIRD PARTY FIRE' : 'COMPREHENSIVE', { exact: false });
     step('cover type chosen');
     if (process.env.RPA_STOP_AT === 'coverage') throw new Error('stopped at coverage');
-    await sleep(page, 400);
-    await tickNx(page, 'WAIVER OF COMPULSORY EXCESS', !!cover.addons?.waiverExcess);
+    // The extra cover list loads after the cover type is chosen.
+    const liveLayout = (await covHeader.count()) > 0; // the practice page has none of these waits
+    for (let i = 0; liveLayout && i < 30 && !/ADD MORE/i.test(await bodyText(page).catch(() => '')); i++) await sleep(page, 500);
+    if (liveLayout) await sleep(page, 800);
+    // Tick a box on the coverage page and check it took; the practice page falls back to a script click.
+    const tick = async (label, on = true) => {
+      const box = page.locator('nx-checkbox', { hasText: label }).first();
+      if (!(await box.count())) return tickNx(page, String(label).replace(/[\\/^$]/g, '').toUpperCase(), on);
+      for (let i = 0; i < 3; i++) {
+        if ((await box.locator('input').isChecked().catch(() => !on)) === on) return true;
+        await press(box.locator('label').first());
+        await sleep(page, 700);
+      }
+      return (await box.locator('input').isChecked().catch(() => !on)) === on;
+    };
+    // Allianz has no "all drivers" cover: the agency rule asks for the waiver instead.
+    const wantWaiver = !!(cover.addons?.waiverExcess || cover.addons?.allDrivers);
+    if (!(await tick(/WAIVER OF COMPULSORY EXCESS/i, wantWaiver)) && wantWaiver) notes.push('Allianz: could not tick Waiver of Compulsory Excess');
+    else if (wantWaiver && cover.addons?.allDrivers) notes.push('Allianz has no All Drivers cover: Waiver of Compulsory Excess (if not named driver) added instead');
     if (cover.addons?.windscreen) {
-      await tickNx(page, 'WINDSCREEN', true);
-      const ws = page.locator('input[formcontrolname*="windscreen" i], input[placeholder*="windscreen" i]').first();
-      if (await ws.count()) await typeInto(ws, Math.round(cover.windscreenSI || 1000));
+      if (!(await tick(/WINDSCREEN/i, true))) notes.push('Allianz: could not tick Windscreen');
+      // Allianz works out the windscreen amount after the tick (spinner): wait for it.
+      const wsRow = page.locator('nx-checkbox', { hasText: /WINDSCREEN/i }).first().locator('xpath=ancestor::tr[1]');
+      for (let i = 0; liveLayout && (await wsRow.count()) && i < 20; i++) {
+        const t = await wsRow.innerText().catch(() => '');
+        if ((await wsRow.locator('input:not([type=checkbox])').count()) || !/SUM INSURED \(RM\)\s*:\s*0\s*$/m.test(t)) break;
+        await sleep(page, 500);
+      }
+      if (process.env.RPA_STOP_AT === 'windscreen') throw new Error('stopped at windscreen');
+      // Live: an amount box appears in the row. Practice page: a named field.
+      let ws = wsRow.locator('input[nxinput]').first();
+      if (!(await ws.count())) ws = page.locator('input[formcontrolname*="windscreen" i], input[placeholder*="windscreen" i]').first();
+      const wsAmount = Math.round(cover.windscreenSI || Number(process.env.DEFAULT_WINDSCREEN_SI) || 1000);
+      if (await ws.count()) {
+        await typeInto(ws, wsAmount);
+        await ws.press('Tab').catch(() => {});
+        await sleep(page, 1500);
+        if (!cover.windscreenSI) notes.push(`Windscreen sum insured RM${wsAmount.toLocaleString()} (default: type an amount on the form to change it)`);
+      }
     }
-    if (cover.addons?.specialPerils) await tickNx(page, 'SPECIAL PERILS', true);
+    if (cover.addons?.specialPerils && !(await tick(/SPECIAL PERILS/i, true))) notes.push('Allianz: could not tick Special Perils');
     if (cover.addons?.ehailing) {
       // Add More → "Extra Cover" pop-up (5 per page): show 50, tick
       // PRIVATE HIRE CAR ENDORSEMENT, Proceed. Practice page: plain table.
@@ -504,7 +537,9 @@ export default {
       ...figures,
       status: 'quoted',
       coverType,
-      notes: [...notes, ...(figures.source === 'summary page' ? [] : slip.checks.map((c) => `Check slip: ${c}`)), ...slip.notes, ...auditAddons(cover, slip)],
+      // Allianz has no all-drivers cover; the waiver stands in for it (noted above).
+      notes: [...notes, ...(figures.source === 'summary page' ? [] : slip.checks.map((c) => `Check slip: ${c}`)), ...slip.notes,
+        ...auditAddons(cover, slip).filter((n) => !(/all drivers/i.test(n) && (figures.addons || []).some((a) => /waiver/i.test(a.label))))],
       slipFile: file,
       benefits: ['Official Allianz e-Quotation saved'],
     };
