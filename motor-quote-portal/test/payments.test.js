@@ -27,7 +27,7 @@ try { createRequire(import.meta.url)('playwright'); } catch { hasPlaywright = fa
 
 test('Atome bot: link for this order only, right outlet, real amount', { skip: !hasPlaywright && 'Playwright not installed', timeout: 120000 }, async () => {
   const port = 3600 + Math.floor(Math.random() * 90);
-  const env = { ...process.env, PORT: String(port), DEMO_INSURERS: '1', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'v-')),
+  const env = { ...process.env, PORT: String(port), DEMO_INSURERS: '1', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'v-')), QUOTES_FILE: path.join(mkdtempSync(path.join(tmpdir(), 'q-')), 'quotes.json'),
     ATOME_PORTAL_URL: `http://localhost:${port}/mock-portal/atome`, ATOME_PORTAL_USER: 'agent01', ATOME_PORTAL_PASS: 'demo123' };
   const srv = spawn(process.execPath, ['server.js'], { env, stdio: ['ignore', 'pipe', 'inherit'] });
   let log = '';

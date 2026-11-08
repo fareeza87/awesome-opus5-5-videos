@@ -74,8 +74,9 @@ async function pickMakeModel(page, vehicle) {
   const box = page.locator('input[formcontrolname="makeModel"]');
   await box.waitFor({ state: 'attached', timeout: 6000 }).catch(() => {});
   // The car's details (year, cc, last year's model) load a moment after the page.
-  for (let i = 0; i < 40; i++) {
-    const year = await page.locator('input[formcontrolname="vehicleMakeYear"]').inputValue().catch(() => 'x');
+  const yearBox = page.locator('input[formcontrolname="vehicleMakeYear"]');
+  for (let i = 0; i < 40 && (await yearBox.count()); i++) {
+    const year = await yearBox.inputValue().catch(() => 'x');
     if (year || /Previous Year Selected Make/i.test(await bodyText(page).catch(() => ''))) break;
     await sleep(page, 500);
   }
@@ -403,8 +404,8 @@ export default {
       const live = page.getByText(/^\s*ADD MORE\s*$/i).last();
       if (await live.count()) await press(live); else await clickText(page, 'ADD MORE', { exact: false });
       const pane = page.locator('.cdk-overlay-pane', { hasText: /Extra Cover/i }).first();
-      await pane.waitFor({ timeout: 8000 }).catch(() => {});
-      await pane.locator('nx-checkbox').first().waitFor({ timeout: 10000 }).catch(() => {}); // list loads after the pop-up
+      await pane.waitFor({ timeout: live && (await live.count()) ? 8000 : 1500 }).catch(() => {});
+      if (await pane.count()) await pane.locator('nx-checkbox').first().waitFor({ timeout: 10000 }).catch(() => {}); // list loads after the pop-up
       const phc = pane.locator('nx-checkbox', { hasText: /PRIVATE HIRE/i }).first();
       const perPage = pane.locator('nx-dropdown[formcontrolname="perPage"]').first();
       if (!(await phc.count()) && (await perPage.count())) {
@@ -413,7 +414,7 @@ export default {
         for (let i = 0; i < 10 && !(await phc.count()); i++) await sleep(page, 500);
       }
       // Still not shown: go through the pages (it is usually on page 2).
-      for (let pg = 2; pg <= 6 && !(await phc.count()); pg++) {
+      for (let pg = 2; pg <= 6 && (await pane.count()) && !(await phc.count()); pg++) {
         const link = pane.getByText(String(pg), { exact: true }).last();
         if (!(await link.count())) break;
         await press(link);

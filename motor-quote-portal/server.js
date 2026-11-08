@@ -8,7 +8,7 @@
 //   /mock-portal/*               practice insurer portal for testing RPA bots
 import './load-env.js'; // must be first: settings are read by the modules below
 import http from 'node:http';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,21 +42,34 @@ const AGENCY = {
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
-const DB = path.join(ROOT, 'data', 'quotes.json');
+const DB = process.env.QUOTES_FILE || path.join(ROOT, 'data', 'quotes.json');
 const PORT = Number(process.env.PORT || 3000);
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 let writing = Promise.resolve();
+// Saved comparisons. Written to a temporary file and then swapped in, so a
+// stop half-way through a save can never leave a broken file; the previous
+// good copy is kept as quotes.json.bak and used if the main file is unreadable.
 async function loadDb() {
-  if (!existsSync(DB)) return [];
-  return JSON.parse(await readFile(DB, 'utf8'));
+  for (const file of [DB, `${DB}.bak`]) {
+    if (!existsSync(file)) continue;
+    try { return JSON.parse(await readFile(file, 'utf8')); } catch (e) { console.error(`${path.basename(file)} unreadable: ${e.message}`); }
+  }
+  return [];
+}
+async function writeDb(rows) {
+  await mkdir(path.dirname(DB), { recursive: true });
+  const tmp = `${DB}.${process.pid}.tmp`;
+  await writeFile(tmp, JSON.stringify(rows.slice(0, 2000), null, 1));
+  if (existsSync(DB)) await copyFile(DB, `${DB}.bak`).catch(() => {});
+  await rename(tmp, DB);
 }
 function saveQuote(row) {
-  writing = writing.then(async () => {
+  // Keep the queue going even if one save fails.
+  writing = writing.catch(() => {}).then(async () => {
     const rows = await loadDb();
     rows.unshift(row);
-    await mkdir(path.dirname(DB), { recursive: true });
-    await writeFile(DB, JSON.stringify(rows.slice(0, 2000), null, 1));
+    await writeDb(rows);
   });
   return writing;
 }
@@ -210,7 +223,7 @@ const server = http.createServer(async (req, res) => {
           : (await atomePayLink({ plate, amount: offer.total, orderId })).link;
         const pay = { provider: payWith === 'fiuu' ? 'Fiuu' : 'Atome', insurer: offer.provider, amount: offer.total, orderId, link, createdAt: new Date().toISOString() };
         row.payments = [pay, ...(row.payments || [])];
-        writing = writing.then(() => writeFile(DB, JSON.stringify(rows.slice(0, 2000), null, 1)));
+        writing = writing.catch(() => {}).then(() => writeDb(rows));
         await writing;
         return send(res, 200, pay);
       } catch (e) { return send(res, 400, { error: e.message }); }

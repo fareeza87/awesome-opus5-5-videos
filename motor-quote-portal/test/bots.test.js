@@ -13,14 +13,14 @@ const owner = { name: 'Ali bin Abu', idType: 'nric', nric: '880312-10-5531', pos
   claims3y: '0', drivingExp: '12', violations: 'none', occupation: 'Engineer', race: 'Malay', religion: 'Islam' };
 const quote = async (port, body, id = 'mock-po') => {
   const r = await (await fetch(`http://localhost:${port}/api/quotes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
-  assert.ok(r.ok, JSON.stringify(r.errors));
+  assert.ok(r.ok, JSON.stringify(r).slice(0, 600));
   return r.results.find((x) => x.providerId === id);
 };
 
 test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright && 'Playwright not installed', timeout: 600000 }, async (t) => {
   const port = 3700 + Math.floor(Math.random() * 90);
   const srv = spawn(process.execPath, ['server.js'], {
-    env: { ...process.env, PORT: String(port), RPA_DEMO: '1', OTP_TIMEOUT_MS: '500', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'vault-')) },
+    env: { ...process.env, PORT: String(port), RPA_DEMO: '1', OTP_TIMEOUT_MS: '500', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'vault-')), QUOTES_FILE: path.join(mkdtempSync(path.join(tmpdir(), 'quotes-')), 'quotes.json'), SETTINGS_FILE: path.join(mkdtempSync(path.join(tmpdir(), 'settings-')), 'settings.json') },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   let log = '';

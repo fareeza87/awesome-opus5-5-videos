@@ -66,7 +66,7 @@ try { createRequire(import.meta.url)('playwright'); } catch { hasPlaywright = fa
 test('live bots: OTP login (staff types code) and forced password change + splash', { skip: !hasPlaywright && 'Playwright not installed', timeout: 90000 }, async () => {
   const port = 3800 + Math.floor(Math.random() * 90);
   const vaultDir = mkdtempSync(path.join(tmpdir(), 'vault-'));
-  const srv = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), RPA_DEMO: '1', VAULT_DIR: vaultDir }, stdio: ['ignore', 'pipe', 'inherit'] });
+  const srv = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(port), RPA_DEMO: '1', VAULT_DIR: vaultDir, QUOTES_FILE: path.join(vaultDir, 'quotes.json') }, stdio: ['ignore', 'pipe', 'inherit'] });
   let log = '';
   srv.stdout.on('data', (d) => { log += d; });
   try {
