@@ -41,7 +41,8 @@ const bodyText = (page) => ev(page, () => document.body.innerText || '');
 // Same pop-up handling as the original script.
 // Pop-ups whose buttons need a real click (a script click is ignored).
 const POPUP_ANSWERS = [
-  [/existing quotation/i, /^\s*NO\s*$/i, 'existing'], // make a fresh quotation, not the old one
+  // Agency rule: retrieve the existing quotation, then bring it up to the customer's latest request.
+  [/existing quotation/i, /^\s*YES\s*$/i, 'existing'],
   [/agent.s email/i, /^\s*YES\s*$/i, 'agent-email'], // agency email used when the customer gave none
 ];
 async function dismissDialogs(page, code = '') {
@@ -72,7 +73,7 @@ function scriptDismiss(page, code = '') {
         btn(m, 'YES', 'OK', 'SUBMIT', 'CONFIRM', 'PROCEED', 'CONTINUE')?.click();
         return 'concurrent';
       }
-      if (t.includes('existing quotation')) { btn(m, 'NO')?.click(); return 'existing'; }
+      if (t.includes('existing quotation')) { btn(m, 'YES')?.click(); return 'existing'; }
       // Agency email used when the customer gave none (agency rule): confirm it.
       if (t.includes("agent's email") || t.includes('agent\u2019s email')) { btn(m, 'YES')?.click(); return 'agent-email'; }
       if (t.includes('enq001') || t.includes('confirmation already taken') || t.includes('confirmation already been taken')) return 'renewed';
@@ -358,6 +359,26 @@ export default {
     if (!moved) throw new Error(`Allianz page 1: NEXT stayed disabled (${(await bodyText(page)).slice(-120).trim()})`);
 
     step('page 2', page.url());
+    // Retrieved an existing quotation (agency rule: YES): Allianz opens its Summary.
+    // Edit its Coverage so it matches this (latest) request.
+    let retrieved = null;
+    let retrievedName = null;
+    for (let i = 0; i < 6 && !/summary/i.test(page.url()); i++) await sleep(page, 300);
+    if (/summary/i.test(page.url())) {
+      const sumText = await bodyText(page);
+      retrieved = /Quotation No\.?\s*:?\s*(QKJ\d+)/i.exec(sumText)?.[1] || 'existing quotation';
+      retrievedName = /(?:^|\n)\s*Name[\t ]*:?[\t ]*\n?[\t ]*:?[\t ]*([A-Z][A-Z@'./ -]{2,60}?)[\t ]*\n/.exec(sumText)?.[1]?.trim() || null; // e.g. "Name⇥AHMAD BIN ALI"
+      const edited = await ev(page, () => {
+        const edits = [...document.querySelectorAll('a, button, span')].filter((e) => e.textContent.trim().toUpperCase() === 'EDIT' && e.offsetParent);
+        const cov = edits.find((e) => { let p = e; for (let k = 0; k < 5 && p; k++, p = p.parentElement) { if (/^\s*Coverage\b/i.test(p.innerText || '')) return true; } return false; });
+        if (cov) { cov.click(); return true; }
+        return false;
+      });
+      step('retrieved quotation', retrieved, 'coverage edit', edited);
+      for (let i = 0; i < 30 && !/coverage/i.test(page.url()); i++) await sleep(page, 500);
+      if (!/coverage/i.test(page.url())) throw new Error('Allianz: opened the existing quotation but could not edit its coverage');
+      notes.push(`Allianz: existing quotation ${retrieved} retrieved and updated to this request`);
+    }
     await sleep(page, 2500);
     if (process.env.RPA_STOP_AT === 'customer') throw new Error('stopped at customer page');
     // Page 2: customer.
@@ -535,7 +556,7 @@ export default {
       if (ticked && (await drvTable.count())) {
         // Agency rule: the customer's name if known (form, else Allianz's records), otherwise CUSTOMER; ID = owner's IC.
         const defaultName = process.env.DEFAULT_CUSTOMER_NAME || 'CUSTOMER';
-        const holderName = (owner.name && owner.name !== defaultName ? owner.name : allianzName) || defaultName;
+        const holderName = (owner.name && owner.name !== defaultName ? owner.name : allianzName || retrievedName) || defaultName;
         const drivers = (cover.ehailingDrivers?.length ? cover.ehailingDrivers : [{ name: holderName, id }]).filter((d) => d.name && d.id);
         const rowsD = drvTable.locator('tr').filter({ has: page.locator('input:not([disabled])') });
         step('driver table', await rowsD.count(), (await drvTable.evaluate((t) => t.outerHTML.replace(/_ng[a-z]+-[^=]*=""/g, '').replace(/<!--[^>]*-->/g, '').replace(/\s+/g, ' ')).catch((e) => e.message)).slice(0, 1500));
