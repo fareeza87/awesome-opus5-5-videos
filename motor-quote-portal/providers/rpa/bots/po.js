@@ -61,6 +61,11 @@ export default {
       await (await find(page, "input[name='login']")).click();
       await page.waitForTimeout(1500);
       if (/invalid agent id or password/i.test(await allText(page))) throw new Error('P&O rejected the agent ID or password');
+      // A refused login is sent to P&O's new front page instead of showing an error.
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      if (/agent\.pacific-orient\.com\/?$/i.test(page.url()) && await find(page, "input[name='uname']")) {
+        throw new Error('P&O refused the login (user name or password incorrect). Check the P&O password in Settings; the bot will not retry');
+      }
     }
     await this.mainMenu(page);
     await page.waitForLoadState('domcontentloaded').catch(() => {});

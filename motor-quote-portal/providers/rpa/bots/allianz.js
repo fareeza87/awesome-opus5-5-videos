@@ -23,7 +23,8 @@ const sleep = (page, ms) => page.waitForTimeout(ms);
 const step = (...a) => { if (process.env.RPA_DEBUG === '1') console.log('[allianz]', new Date().toISOString().slice(11, 19), ...a); };
 
 async function press(locator) {
-  try { await locator.click({ timeout: 4000 }); } catch { await locator.evaluate((b) => b.click()); }
+  // If the page moved on after the click, the button is gone: that is fine.
+  try { await locator.click({ timeout: 4000 }); } catch { await locator.evaluate((b) => b.click(), null, { timeout: 3000 }).catch(() => {}); }
 }
 
 async function ev(page, fn, arg) {
@@ -38,19 +39,92 @@ async function ev(page, fn, arg) {
 const bodyText = (page) => ev(page, () => document.body.innerText || '');
 
 // Same pop-up handling as the original script.
-function dismissDialogs(page) {
-  return ev(page, () => {
+function dismissDialogs(page, code = '') {
+  return ev(page, (code) => {
     const modals = [...document.querySelectorAll('.cdk-overlay-pane, nx-modal-container, [role="dialog"], .modal')];
     const btn = (m, ...labels) => [...m.querySelectorAll('button, a, [role="button"]')].find((b) => labels.includes((b.textContent || '').trim().toUpperCase()));
     for (const m of modals) {
       const t = (m.innerText || '').toLowerCase();
-      if (t.includes('concurrent login') || t.includes('another machine') || t.includes('other session will be ended')) { btn(m, 'YES')?.click(); return 'concurrent'; }
+      if (t.includes('concurrent login') || t.includes('another machine') || t.includes('other session will be ended')) {
+        // Allianz may ask for a code here: type it in, then confirm.
+        const box = m.querySelector('input:not([type=hidden]):not([type=checkbox]):not([type=radio])');
+        if (box) {
+          if (!code) return 'concurrent-code-needed';
+          const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          set.call(box, code);
+          ['input', 'change', 'blur'].forEach((e) => box.dispatchEvent(new Event(e, { bubbles: true })));
+        }
+        btn(m, 'YES', 'OK', 'SUBMIT', 'CONFIRM', 'PROCEED', 'CONTINUE')?.click();
+        return 'concurrent';
+      }
       if (t.includes('existing quotation')) { btn(m, 'NO')?.click(); return 'existing'; }
       if (t.includes('enq001') || t.includes('confirmation already taken') || t.includes('confirmation already been taken')) return 'renewed';
       if (/lapsed|betterment|notice|warning|e-invoice|consent not updated/.test(t)) { const b = btn(m, 'NEXT', 'OK', 'CLOSE', 'CONTINUE', 'PROCEED'); if (b) { b.click(); return 'notice'; } }
     }
     return null;
-  }).catch(() => null);
+  }, code).catch(() => null);
+}
+
+// Coverage page: Make / Model is picked in a search pop-up. Use last year's
+// model shown on the page ("Previous Year Selected Make / Model : PERODUA AXIA -
+// 1000 SE (CVT)"), or the make/model from the form, and take the closest row.
+async function pickMakeModel(page, vehicle) {
+  const box = page.locator('input[formcontrolname="makeModel"]');
+  await box.waitFor({ state: 'attached', timeout: 6000 }).catch(() => {});
+  if (!(await box.count()) || (await box.inputValue()).trim()) return null;
+  const prev = /Previous Year Selected Make \/ Model\s*:\s*([^\n]+)/i.exec(await bodyText(page))?.[1]?.trim() || '';
+  const [prevModel = '', prevVariant = ''] = prev.split(/\s+-\s+/);
+  const wanted = (prevModel || `${vehicle.make || ''} ${vehicle.model || ''}`).trim().toUpperCase();
+  if (!wanted) throw new Error('Allianz needs the make/model: fill it in on the form');
+  const keyword = wanted.split(/\s+/).slice(1).join(' ') || wanted;
+  const field = box.locator('xpath=ancestor::nx-formfield[1]');
+  await press(field.locator('nx-icon, button').last());
+  const search = page.locator('.cdk-overlay-pane input[formcontrolname="searchBy"]');
+  await search.waitFor({ timeout: 10000 });
+  await search.fill(keyword);
+  await press(page.locator('.cdk-overlay-pane button', { hasText: /search/i }).first());
+  const rows = page.locator('.cdk-overlay-pane tr.nx-table-row--selectable');
+  await rows.first().waitFor({ timeout: 15000 });
+  const list = await rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim())));
+  const words = (t) => new Set(t.toUpperCase().replace(/[()]/g, ' ').split(/\s+/).filter((w) => w.length > 1));
+  const want = words(prevVariant);
+  const score = ([mm, variant, , , cc]) => (mm.toUpperCase() === wanted ? 10 : 0)
+    + [...words(variant)].filter((w) => want.has(w)).length * 3
+    + (vehicle.cc && Number(cc) === Number(vehicle.cc) ? 2 : 0)
+    + (vehicle.year && variant.includes(`MY${String(vehicle.year).slice(2)}`) ? 1 : 0);
+  let best = 0;
+  list.forEach((r, i) => { if (score(r) > score(list[best])) best = i; });
+  await press(rows.nth(best));
+  await sleep(page, 800);
+  const ok = page.locator('.cdk-overlay-pane button', { hasText: /^\s*(OK|SELECT|CONFIRM|PROCEED)\s*$/i }).first();
+  if (await ok.count()) await press(ok);
+  await sleep(page, 800);
+  const [mm, variant, range] = list[best];
+  return `Make/model picked on Allianz: ${mm} ${variant} (SI range RM${range})`;
+}
+
+// Price as shown on the Summary page ("Premium Information"). This one has the
+// car's real NCD; the e-Quotation PDF is printed at 0% NCD.
+function summaryPremium(text) {
+  const i = text.search(/Premium Summary/i);
+  if (i < 0) return null;
+  const t = text.slice(i, i + 1500);
+  const num = (re) => { const m = re.exec(t); return m ? Number(m[1].replace(/,/g, '')) : null; };
+  const r = {
+    sumInsured: num(/Vehicle Sum Insured\s*:?\s*([\d,]+\.\d{2})/i),
+    basic: num(/Basic Premium\s*:?\s*([\d,]+\.\d{2})/i),
+    ncdPercent: num(/No Claim Discount\s*\(([\d.]+)%\)/i),
+    ncdAmount: num(/No Claim Discount\s*\([\d.]+%\)\s*:?\s*([\d,]+\.\d{2})/i),
+    addonTotal: num(/Total Extra Cover Premium\s*:?\s*([\d,]+\.\d{2})/i) || 0,
+    gross: num(/Gross Premium\s*:?\s*([\d,]+\.\d{2})/i),
+    sst: num(/Service Tax[^:\n]*:?\s*([\d,]+\.\d{2})/i),
+    stampDuty: num(/Stamp Duty\s*:?\s*([\d,]+\.\d{2})/i),
+    total: num(/Total Amount\s*:?\s*([\d,]+\.\d{2})/i),
+  };
+  if ([r.basic, r.gross, r.sst, r.stampDuty, r.total].some((v) => v === null)) return null;
+  // Same checks as for slips: basic - NCD + add-ons = gross; gross + tax + stamp = total.
+  const ok = Math.abs(r.basic - (r.ncdAmount || 0) + r.addonTotal - r.gross) < 0.06 && Math.abs(r.gross + r.sst + r.stampDuty - r.total) < 0.06;
+  return ok ? r : null;
 }
 
 async function typeInto(locator, text) {
@@ -99,7 +173,12 @@ export default {
     await typeInto(page.locator("input[type='password']").first(), ctx.pass);
     await clickText(page, 'LOG IN', { exact: false });
     await sleep(page, 1500);
-    for (let i = 0; i < 5; i++) { if ((await dismissDialogs(page)) === 'concurrent') { await sleep(page, 1000); break; } await sleep(page, 400); }
+    for (let i = 0; i < 5; i++) {
+      const d = await dismissDialogs(page, ctx.concurrentCode);
+      if (d === 'concurrent-code-needed') throw new Error('Allianz concurrent login asks for a code: enter it in Settings');
+      if (d === 'concurrent') { await sleep(page, 1000); break; }
+      await sleep(page, 400);
+    }
     if (/invalid user id or password/i.test(await bodyText(page))) throw new Error('Allianz rejected the user ID or password');
 
     if (page.url().includes('secret-answer') || /secret question/i.test(await bodyText(page))) {
@@ -185,14 +264,27 @@ export default {
       step('page 1 loop', i, 'next enabled', await next.isEnabled().catch(() => 'n/a'));
       if (await next.isEnabled().catch(() => false)) {
         await press(next);
-        await sleep(page, 800);
-        moved = await onPage2();
+        // Wait for the page to change; a returning customer may skip straight to Coverage.
+        for (let w = 0; w < 16 && /declaration/i.test(page.url()); w++) await sleep(page, 500);
+        moved = !/declaration/i.test(page.url()) || await onPage2();
       } else { if (i % 4 === 3) await answerDeclaration(); await sleep(page, 500); }
     }
     if (!moved) throw new Error(`Allianz page 1: NEXT stayed disabled (${(await bodyText(page)).slice(-120).trim()})`);
 
-    step('page 2');
+    step('page 2', page.url());
+    await sleep(page, 2500);
+    if (process.env.RPA_STOP_AT === 'customer') throw new Error('stopped at customer page');
     // Page 2: customer.
+    let customerText = await bodyText(page);
+    // Customer already on Allianz's records: details are shown, just press NEXT.
+    if (/Customer Found/i.test(customerText) && !/Type of Coverage/i.test(customerText)) {
+      step('customer found');
+      await press(page.locator('button', { hasText: /^\s*NEXT\s*$/i }).first());
+      for (let i = 0; i < 30 && !(await page.locator('input[formcontrolname="makeModel"]').count()); i++) { await dismissDialogs(page); await sleep(page, 500); }
+      customerText = await bodyText(page);
+    }
+    const onCustomerPage = !/Type of Coverage/i.test(customerText) && /customer/i.test(page.url());
+    if (onCustomerPage) {
     const mobPrefix = '60' + mobile.slice(0, 2);
     await pickDropdown(page, 'mobileNoCode', mobPrefix);
     await typeInto(page.locator('input[formcontrolname="mobileNo"]'), mobile.slice(2));
@@ -213,15 +305,26 @@ export default {
       const errs = await ev(page, () => [...document.querySelectorAll('nx-error, .nx-message--error')].map((e) => e.innerText.trim()).filter(Boolean).join(' | '));
       return { status: 'declined', reasons: [`Allianz customer page: ${errs || 'could not continue'}`] };
     }
+    }
+    step('coverage');
+    const notes = [];
+    const mmNote = await pickMakeModel(page, vehicle);
+    if (mmNote) notes.push(mmNote);
+    step('make/model', mmNote);
 
     // Coverage and add-ons.
-    const notes = [];
     let coverType = cover.coverType;
     if (coverType === 'comprehensive' && Number(vehicle.year) && Number(vehicle.year) < TPFT_BEFORE_YEAR) {
       coverType = 'tpft';
       notes.push(`Car made before ${TPFT_BEFORE_YEAR}: quoted Third Party, Fire & Theft`);
     }
-    await clickText(page, coverType === 'tpft' ? 'THIRD PARTY FIRE' : 'COMPREHENSIVE', { exact: false });
+    // "Type of Coverage" is a folded section: open it, then press the cover button.
+    const covHeader = page.locator('nx-expansion-panel-header', { hasText: /Type of Coverage/i }).first();
+    if ((await covHeader.getAttribute('aria-expanded').catch(() => null)) === 'false') { await press(covHeader); await sleep(page, 800); }
+    const covBtn = page.locator('nx-expansion-panel button', { hasText: coverType === 'tpft' ? /Third Party,? Fire/i : /^\s*Comprehensive\s*$/i }).first();
+    if (await covBtn.count()) await press(covBtn);
+    else await clickText(page, coverType === 'tpft' ? 'THIRD PARTY FIRE' : 'COMPREHENSIVE', { exact: false });
+    step('cover type chosen');
     await sleep(page, 400);
     await tickNx(page, 'WAIVER OF COMPULSORY EXCESS', !!cover.addons?.waiverExcess);
     if (cover.addons?.windscreen) {
@@ -252,7 +355,12 @@ export default {
     }
     if (!page.url().toLowerCase().includes('summary')) throw new Error('Allianz: could not reach the summary page');
 
-    // Generate e-Quotation and download the official PDF.
+    // Generate e-Quotation and download the official PDF. Never "Send to JPJ".
+    step('summary');
+    let onScreen = null;
+    for (let i = 0; i < 20 && !(onScreen = summaryPremium(await bodyText(page))); i++) await sleep(page, 500); // price loads a moment later
+    step('summary premium', JSON.stringify(onScreen));
+    if (process.env.RPA_STOP_AT === 'summary') throw new Error('stopped at summary');
     await clickText(page, 'GENERATE E-QUOTATION', { exact: false });
     const pdfBtn = page.locator('a, button', { hasText: /e-?quotation pdf|download e-?quotation/i }).first();
     await pdfBtn.waitFor({ timeout: 15000 });
@@ -268,11 +376,17 @@ export default {
     await copyFile(tmp, path.join(SLIPS, file));
 
     const { providerId, provider, kind, ...figures } = slip; // keep the panel's own id and name
+    // Use the Summary page price when it differs (it has the NCD; the PDF is at 0%).
+    if (onScreen && (Math.abs(onScreen.total - slip.total) > 0.06 || onScreen.ncdPercent !== slip.ncdPercent)) {
+      Object.assign(figures, onScreen, { ncdPercent: onScreen.ncdPercent ?? 0, ncdAmount: onScreen.ncdAmount ?? 0 });
+      figures.source = 'summary page';
+      notes.push(`Price from Allianz summary page (NCD ${onScreen.ncdPercent ?? 0}%). The e-Quotation PDF is printed at ${slip.ncdPercent}% NCD with a table for other NCD levels`);
+    }
     return {
       ...figures,
       status: 'quoted',
       coverType,
-      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...slip.notes, ...auditAddons(cover, slip)],
+      notes: [...notes, ...(figures.source === 'summary page' ? [] : slip.checks.map((c) => `Check slip: ${c}`)), ...slip.notes, ...auditAddons(cover, slip)],
       slipFile: file,
       benefits: ['Official Allianz e-Quotation saved'],
     };

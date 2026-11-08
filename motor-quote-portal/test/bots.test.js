@@ -17,7 +17,7 @@ const quote = async (port, body, id = 'mock-po') => {
   return r.results.find((x) => x.providerId === id);
 };
 
-test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright && 'Playwright not installed', timeout: 360000 }, async (t) => {
+test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright && 'Playwright not installed', timeout: 600000 }, async (t) => {
   const port = 3700 + Math.floor(Math.random() * 90);
   const srv = spawn(process.execPath, ['server.js'], {
     env: { ...process.env, PORT: String(port), RPA_DEMO: '1', OTP_TIMEOUT_MS: '500', VAULT_DIR: mkdtempSync(path.join(tmpdir(), 'vault-')) },

@@ -210,12 +210,13 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { portals });
     }
     if (url.pathname === '/api/settings/login' && req.method === 'POST') {
-      const { id, user, pass, secret } = await readJson(req);
+      const { id, user, pass, secret, concurrent } = await readJson(req);
       if (![...PANEL.map((p) => p.id), 'atome'].includes(id)) return send(res, 400, { error: 'Unknown portal' });
       if (!user || !pass) return send(res, 400, { error: 'Enter the user ID and password' });
       vault.setPassword(`${id}__user`, user);
       vault.setPassword(id, pass);
       if (secret) vault.setPassword(`${id}__secret`, secret);
+      if (concurrent) vault.setPassword(`${id}__concurrent`, concurrent);
       return send(res, 200, { ok: true });
     }
     if (url.pathname === '/api/settings/insurers' && req.method === 'POST') {

@@ -32,6 +32,8 @@ export function credentialsFor(provider) {
     user: vault.getPasswords(`${provider.id}__user`)?.current || process.env[`${prefix}_PORTAL_USER`] || provider.rpa?.defaultUser,
     pass: saved?.current || process.env[`${prefix}_PORTAL_PASS`] || provider.rpa?.defaultPass,
     pendingPass: saved?.pending || null,
+    // Code some portals ask for when the same login is open elsewhere (Allianz).
+    concurrentCode: vault.getPasswords(`${provider.id}__concurrent`)?.current || process.env[`${prefix}_PORTAL_CONCURRENT_CODE`] || provider.rpa?.defaultConcurrent,
     secret: vault.getPasswords(`${provider.id}__secret`)?.current || process.env[`${prefix}_PORTAL_SECRET`] || provider.rpa?.defaultSecret, // security question answer, if the portal asks
   };
   if (!c.url || !c.user || !c.pass) throw new Error(`Portal login not set: enter it in Settings (or ${prefix}_PORTAL_USER / _PASS in .env)`);

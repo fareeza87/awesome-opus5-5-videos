@@ -33,13 +33,13 @@ async function draw() {
       <form class="login" data-id="${p.id}">
         <input name="user" placeholder="${esc(p.userLabel || 'User ID')}" autocomplete="off" aria-label="User ID">
         <input name="pass" type="password" placeholder="Password" autocomplete="new-password" aria-label="Password">
-        ${p.secret ? '<input name="secret" type="password" placeholder="Secret question answer" autocomplete="off" aria-label="Secret answer">' : ''}
+        ${p.secret ? '<input name="secret" type="password" placeholder="Secret question answer" autocomplete="off" aria-label="Secret answer"><input name="concurrent" type="password" placeholder="Code asked on concurrent login" autocomplete="off" aria-label="Concurrent login code">' : ''}
         <div class="row"><button class="primary">Save login</button><span class="muted small msg"></span></div>
       </form></section>`).join('');
   document.querySelectorAll('form.login').forEach((f) => f.addEventListener('submit', async (e) => {
     e.preventDefault();
     const msg = f.querySelector('.msg');
-    try { await api('/api/settings/login', { id: f.dataset.id, user: f.user.value.trim(), pass: f.pass.value, secret: f.secret?.value }); msg.textContent = 'Saved'; setTimeout(draw, 600); }
+    try { await api('/api/settings/login', { id: f.dataset.id, user: f.user.value.trim(), pass: f.pass.value, secret: f.secret?.value, concurrent: f.concurrent?.value }); msg.textContent = 'Saved'; setTimeout(draw, 600); }
     catch (err) { msg.textContent = err.message; }
   }));
   document.querySelectorAll('[data-on]').forEach((c) => c.addEventListener('change', async () => {
