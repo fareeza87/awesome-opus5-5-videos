@@ -29,12 +29,12 @@ export function credentialsFor(provider) {
   const saved = vault.getPasswords(provider.id);
   const c = {
     url: process.env[`${prefix}_PORTAL_URL`] || provider.rpa?.defaultUrl,
-    user: process.env[`${prefix}_PORTAL_USER`] || provider.rpa?.defaultUser,
+    user: vault.getPasswords(`${provider.id}__user`)?.current || process.env[`${prefix}_PORTAL_USER`] || provider.rpa?.defaultUser,
     pass: saved?.current || process.env[`${prefix}_PORTAL_PASS`] || provider.rpa?.defaultPass,
     pendingPass: saved?.pending || null,
-    secret: process.env[`${prefix}_PORTAL_SECRET`] || provider.rpa?.defaultSecret, // security question answer, if the portal asks
+    secret: vault.getPasswords(`${provider.id}__secret`)?.current || process.env[`${prefix}_PORTAL_SECRET`] || provider.rpa?.defaultSecret, // security question answer, if the portal asks
   };
-  if (!c.url || !c.user || !c.pass) throw new Error(`Portal login not set (${prefix}_PORTAL_URL / _USER / _PASS)`);
+  if (!c.url || !c.user || !c.pass) throw new Error(`Portal login not set: enter it in Settings (or ${prefix}_PORTAL_USER / _PASS in .env)`);
   return c;
 }
 
@@ -87,7 +87,13 @@ export function runBot(provider, bot, task) {
     try {
       if (!slot.loggedIn) { await login(provider, bot, page, creds, slot); slot.loggedIn = true; }
       try {
-        return await task(page, creds);
+        const out = await task(page, creds);
+        // RPA_TRACE=1: keep a picture of where the bot finished, for checking first real runs.
+        if (process.env.RPA_TRACE === '1') {
+          await mkdir(SHOTS, { recursive: true });
+          await page.screenshot({ path: path.join(SHOTS, `${provider.id}-done-${Date.now()}.png`), fullPage: true }).catch(() => {});
+        }
+        return out;
       } catch (e) {
         // Session expired mid-way: log in again and retry once.
         if (await bot.isLoginPage(page).catch(() => false)) {

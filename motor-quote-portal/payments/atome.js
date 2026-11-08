@@ -4,6 +4,7 @@
 // and the link must come from this order (no "success" without a real link).
 // Settings: ATOME_PORTAL_USER, ATOME_PORTAL_PASS, ATOME_OUTLET (default "MetaFin").
 import { runBot } from '../providers/rpa/pool.js';
+import { getPasswords } from '../providers/rpa/vault.js';
 
 const PROVIDER = {
   id: 'atome', name: 'Atome',
@@ -11,7 +12,7 @@ const PROVIDER = {
 };
 const LINK = /https:\/\/(?:gateway|pay)\.atome\.my\/[^\s"'<>]+/;
 
-export const atomeConfigured = () => !!(process.env.ATOME_PORTAL_USER && process.env.ATOME_PORTAL_PASS);
+export const atomeConfigured = () => !!(process.env.ATOME_PORTAL_USER && process.env.ATOME_PORTAL_PASS) || !!(getPasswords('atome')?.current && getPasswords('atome__user')?.current);
 
 const bot = {
   async login(page, ctx) {

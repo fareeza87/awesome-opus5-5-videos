@@ -9,6 +9,7 @@ import { PROVIDERS as CONFIGURED, PANEL } from '../public/engine/providers-confi
 import { quoteViaApi } from './api-connector.js';
 import { quoteViaWebhook } from './webhook-connector.js';
 import { quoteViaRpa, lookupViaRpa } from './rpa/index.js';
+import { readSettings } from '../settings.js';
 
 const PORT = Number(process.env.PORT || 3000);
 
@@ -31,16 +32,22 @@ const RPA_DEMO = process.env.RPA_DEMO === '1' ? [
     rpa: { bot: 'allianz', defaultUrl: `http://localhost:${PORT}/mock-portal/allianz/`, defaultUser: 'agent01', defaultPass: 'demo123', defaultSecret: 'blue' } },
 ].filter((p) => !process.env.PRACTICE || process.env.PRACTICE.split(',').includes(p.id)) : [];
 
-// Real insurers switched on with INSURERS=po,allianz,ikhlas (in .env).
-const wanted = String(process.env.INSURERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const unknown = wanted.filter((id) => !PANEL.some((p) => p.id === id));
+// Real insurers: INSURERS=po,allianz,ikhlas in .env, plus any switched on in Settings.
+const envWanted = String(process.env.INSURERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const unknown = envWanted.filter((id) => !PANEL.some((p) => p.id === id));
 if (unknown.length) console.warn(`INSURERS: unknown insurer id(s) ${unknown.join(', ')}. Known: ${PANEL.map((p) => p.id).join(', ')}`);
-const REAL = PANEL.filter((p) => wanted.includes(p.id)).map((p) => ({ ...p, enabled: true }));
-const showDemo = process.env.DEMO_INSURERS !== undefined ? process.env.DEMO_INSURERS === '1' : !REAL.length;
 
-export const PROVIDERS = [...REAL, ...RPA_DEMO, ...(showDemo ? CONFIGURED.filter((p) => p.enabled !== false) : [])];
+// Worked out on every quote, so Settings changes apply without a restart.
+export function currentProviders() {
+  const wanted = new Set([...envWanted, ...(readSettings().insurers || [])]);
+  const real = PANEL.filter((p) => wanted.has(p.id)).map((p) => ({ ...p, enabled: true }));
+  const showDemo = process.env.DEMO_INSURERS !== undefined ? process.env.DEMO_INSURERS === '1' : !real.length;
+  return [...real, ...RPA_DEMO, ...(showDemo ? CONFIGURED.filter((p) => p.enabled !== false) : [])];
+}
+export const PROVIDERS = currentProviders();
 // Demo pricing needs full vehicle details; real portals look the car up themselves.
-export const USES_DEMO_PRICING = PROVIDERS.some((p) => p.mode === 'demo');
+export const usesDemoPricing = () => currentProviders().some((p) => p.mode === 'demo');
+export const USES_DEMO_PRICING = usesDemoPricing();
 
 // Portals that shut at night, e.g. P&O is off from 9pm to 5am.
 //   hours: { closed: ['21:00', '05:00'] }   (Malaysia time)
@@ -69,11 +76,11 @@ export async function quoteOne(provider, req) {
 // insurer marked lookupSource, so every insurer is then quoted on the same
 // vehicle details and the same sum insured.
 export async function lookupVehicle(req) {
-  const src = PROVIDERS.find((p) => p.lookupSource);
+  const src = currentProviders().find((p) => p.lookupSource);
   if (src?.mode === 'rpa') return { source: src.name, ...(await lookupViaRpa(src, req)) };
   if (src?.mode === 'webhook') return { source: src.name, ...(await quoteViaWebhook(src, req, 'lookup')) };
   // Only demo insurers may use the made-up demo lookup.
-  if (!USES_DEMO_PRICING) return null;
+  if (!usesDemoPricing()) return null;
   const found = demoLookup(req);
   if (!found) throw new Error('Plate number not recognised');
   return { source: 'Demo lookup', ...found };

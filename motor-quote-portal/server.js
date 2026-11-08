@@ -14,7 +14,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { compareStream } from './public/engine/compare.js';
-import { PROVIDERS, quoteOne, lookupVehicle } from './providers/index.js';
+import { PROVIDERS, currentProviders, quoteOne, lookupVehicle } from './providers/index.js';
+import { PANEL } from './public/engine/providers-config.js';
+import { readSettings, writeSettings } from './settings.js';
+import * as vault from './providers/rpa/vault.js';
 import { handleMockPortal } from './mock-portal/index.js';
 import { closeAll, renderPdf } from './providers/rpa/pool.js';
 import { quotationHtml } from './public/quotation.js';
@@ -84,7 +87,7 @@ const readJson = async (req) => JSON.parse((await readText(req)) || '{}');
 const readForm = async (req) => Object.fromEntries(new URLSearchParams(await readText(req)));
 
 async function runQuote(body, staff, onEvent) {
-  const result = await compareStream(body, PROVIDERS, quoteOne, { lookup: lookupVehicle, onEvent });
+  const result = await compareStream(body, currentProviders(), quoteOne, { lookup: lookupVehicle, onEvent });
   if (result.ok) {
     result.id = randomUUID().slice(0, 8).toUpperCase();
     result.staff = staff || null;
@@ -114,7 +117,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/mock-portal')) return await handleMockPortal(req, res, url, readForm);
 
     if (url.pathname === '/api/providers') {
-      return send(res, 200, PROVIDERS.map(({ id, name, kind, mode, lookupSource }) => ({ id, name, kind, mode, lookupSource: !!lookupSource })));
+      return send(res, 200, currentProviders().map(({ id, name, kind, mode, lookupSource }) => ({ id, name, kind, mode, lookupSource: !!lookupSource })));
     }
     if (url.pathname === '/api/quotes/stream' && req.method === 'POST') {
       const body = await readJson(req);
@@ -170,6 +173,30 @@ const server = http.createServer(async (req, res) => {
         await writing;
         return send(res, 200, pay);
       } catch (e) { return send(res, 400, { error: e.message }); }
+    }
+    // Settings: insurer logins (encrypted) and which insurers to quote.
+    if (url.pathname === '/settings') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(await readFile(path.join(PUBLIC, 'settings.html'))); }
+    if (url.pathname === '/api/settings' && req.method === 'GET') {
+      const on = new Set([...(readSettings().insurers || []), ...String(process.env.INSURERS || '').split(',').map((x) => x.trim())]);
+      const portals = [
+        ...PANEL.map((p) => ({ id: p.id, name: p.name, kind: 'insurer', enabled: on.has(p.id), hold: p.onHold, notes: p.notes, secret: p.id === 'allianz' })),
+        { id: 'atome', name: 'Atome (payment links)', kind: 'payment', userLabel: 'Atome username' },
+      ].map((p) => ({ ...p, loginSet: !!vault.getPasswords(p.id)?.current && !!vault.getPasswords(`${p.id}__user`)?.current, changedAt: vault.getPasswords(p.id)?.changedAt }));
+      return send(res, 200, { portals });
+    }
+    if (url.pathname === '/api/settings/login' && req.method === 'POST') {
+      const { id, user, pass, secret } = await readJson(req);
+      if (![...PANEL.map((p) => p.id), 'atome'].includes(id)) return send(res, 400, { error: 'Unknown portal' });
+      if (!user || !pass) return send(res, 400, { error: 'Enter the user ID and password' });
+      vault.setPassword(`${id}__user`, user);
+      vault.setPassword(id, pass);
+      if (secret) vault.setPassword(`${id}__secret`, secret);
+      return send(res, 200, { ok: true });
+    }
+    if (url.pathname === '/api/settings/insurers' && req.method === 'POST') {
+      const { ids = [] } = await readJson(req);
+      const allowed = PANEL.filter((p) => !p.onHold).map((p) => p.id);
+      return send(res, 200, writeSettings({ insurers: ids.filter((x) => allowed.includes(x)) }));
     }
     if (url.pathname === '/api/config') return send(res, 200, { fiuu: fiuuConfigured(), atome: atomeConfigured() });
     // Car grant (geran) or old policy: photo or PDF → form fields.
@@ -261,7 +288,7 @@ server.listen(PORT, () => {
   const lan = Object.values(networkInterfaces()).flat().filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => `http://${i.address}:${PORT}`);
   if (lan.length) console.log(`Staff on the office Wi-Fi: ${lan.join('  or  ')}`);
   if (!authOn()) console.log('WARNING: no PORTAL_PASSWORD set. Anyone on the Wi-Fi can open the portal. Set it in .env.');
-  console.log(`Insurers: ${PROVIDERS.map((p) => `${p.name} [${p.mode}]`).join(', ')}`);
+  console.log(`Insurers: ${currentProviders().map((p) => `${p.name} [${p.mode}]`).join(', ')}`);
 });
 
 // Close bot browsers on shutdown so no Chromium is left running.
