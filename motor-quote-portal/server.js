@@ -91,11 +91,13 @@ const readForm = async (req) => Object.fromEntries(new URLSearchParams(await rea
 // default name and phone, and the town from the postcode as the address.
 const DEFAULT_NAME = process.env.DEFAULT_CUSTOMER_NAME || 'CUSTOMER';
 const DEFAULT_PHONE = process.env.DEFAULT_CUSTOMER_PHONE || '012-2902990';
+const DEFAULT_EMAIL = process.env.DEFAULT_CUSTOMER_EMAIL || 'digital@metafin.com.my';
 function fillDefaults(body) {
   const o = (body.owner ||= {});
   const used = [];
   if (!String(o.name || '').trim()) { o.name = DEFAULT_NAME; used.push(`name "${DEFAULT_NAME}"`); }
   if (!String(o.phone || '').trim()) { o.phone = DEFAULT_PHONE; used.push(`phone ${DEFAULT_PHONE}`); }
+  if (!String(o.email || '').trim() && DEFAULT_EMAIL) { o.email = DEFAULT_EMAIL; used.push(`email ${DEFAULT_EMAIL}`); }
   // Driver answers some insurers ask (e.g. Takaful Ikhlas), per the agency's defaults.
   const ask = [
     ['claims3y', process.env.DEFAULT_CLAIMS_3Y ?? '0', 'claims 0'],

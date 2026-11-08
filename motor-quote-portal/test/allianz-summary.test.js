@@ -15,3 +15,9 @@ test('Allianz summary that does not add up is not used', () => {
   assert.equal(summaryPremium(page.replace('1,094.38', '1,194.38')), null);
   assert.equal(summaryPremium('no premium here'), null);
 });
+
+test('Allianz summary extra cover table: e-hailing named', async () => {
+  const { summaryAddons } = await import('../providers/rpa/bots/allianz.js');
+  const t = 'Extra Coverage\nThese coverage(s) / service(s) are provided at no extra cost.\n24 HOUR EMERGENCY TOWING\nExtra Cover\tPremium (RM)\nPRIVATE HIRE CAR ENDORSEMENT\t1,972.54\ne-Hailing Drivers Name\n';
+  assert.deepEqual(summaryAddons(t), [{ key: 'ehailing', label: 'Private Hire Car Endorsement', amount: 1972.54 }]);
+});

@@ -73,7 +73,14 @@ function dismissDialogs(page, code = '') {
 async function pickMakeModel(page, vehicle) {
   const box = page.locator('input[formcontrolname="makeModel"]');
   await box.waitFor({ state: 'attached', timeout: 6000 }).catch(() => {});
-  if (!(await box.count()) || (await box.inputValue()).trim()) return null;
+  if (!(await box.count())) return null;
+  // Allianz may remember a model from an earlier draft: keep it only if it fits the car.
+  const current = (await box.inputValue()).trim().toUpperCase();
+  if (current) {
+    const ccOk = !vehicle.cc || current.includes(`${vehicle.cc} CC`);
+    const yearOk = !vehicle.year || current.includes(`MY${String(vehicle.year).slice(2)}`) || !/\bMY\d{2}\b/.test(current);
+    if (ccOk && yearOk) return null;
+  }
   const prev = /Previous Year Selected Make \/ Model\s*:\s*([^\n]+)/i.exec(await bodyText(page))?.[1]?.trim() || '';
   const [prevModel = '', prevVariant = ''] = prev.split(/\s+-\s+/);
   const wanted = (prevModel || `${vehicle.make || ''} ${vehicle.model || ''}`).trim().toUpperCase();
@@ -87,26 +94,58 @@ async function pickMakeModel(page, vehicle) {
   await press(page.locator('.cdk-overlay-pane button', { hasText: /search/i }).first());
   const rows = page.locator('.cdk-overlay-pane tr.nx-table-row--selectable');
   await rows.first().waitFor({ timeout: 15000 });
+  // The list shows 5 per page: show 50 so every variant is there.
+  const perPage = page.locator('.cdk-overlay-pane nx-dropdown[formcontrolname="perPage"]').first();
+  if (await perPage.count()) {
+    await press(perPage);
+    await press(page.locator('nx-dropdown-item', { hasText: /^\s*50\s*$/ }).first());
+    await sleep(page, 1200);
+  }
   const list = await rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim())));
+  step('make/model rows', list.length, JSON.stringify(list.map((r) => `${r[1]} | ${r[4]}`)).slice(0, 1500));
+  step('picker footer', (await page.locator('.cdk-overlay-pane').last().innerText().catch(() => '')).split('\n').slice(-6).join(' / '));
   const words = (t) => new Set(t.toUpperCase().replace(/[()]/g, ' ').split(/\s+/).filter((w) => w.length > 1));
   const want = words(prevVariant);
   const score = ([mm, variant, , , cc]) => (mm.toUpperCase() === wanted ? 10 : 0)
     + [...words(variant)].filter((w) => want.has(w)).length * 3
-    + (vehicle.cc && Number(cc) === Number(vehicle.cc) ? 2 : 0)
+    + (vehicle.cc && Number(String(cc).replace(/,/g, '')) === Number(vehicle.cc) ? 2 : 0)
     + (vehicle.year && variant.includes(`MY${String(vehicle.year).slice(2)}`) ? 1 : 0);
-  let best = 0;
-  list.forEach((r, i) => { if (score(r) > score(list[best])) best = i; });
+  // With the engine size known, only rows of that size will do.
+  const ccOf = (r) => Number(String(r[4] || '').replace(/,/g, ''));
+  const fits = list.map((r, i) => i).filter((i) => !vehicle.cc || ccOf(list[i]) === Number(vehicle.cc));
+  if (!fits.length) {
+    await press(page.locator('.cdk-overlay-pane button', { hasText: /cancel/i }).first());
+    throw new Error(`Allianz has no ${wanted} of ${vehicle.cc}cc in its list: check the make/model`);
+  }
+  let best = fits[0];
+  fits.forEach((i) => { if (score(list[i]) > score(list[best])) best = i; });
   await press(rows.nth(best));
   await sleep(page, 800);
   const ok = page.locator('.cdk-overlay-pane button', { hasText: /^\s*(OK|SELECT|CONFIRM|PROCEED)\s*$/i }).first();
   if (await ok.count()) await press(ok);
   await sleep(page, 800);
   const [mm, variant, range] = list[best];
-  return `Make/model picked on Allianz: ${mm} ${variant} (SI range RM${range})`;
+  const others = fits.filter((i) => i !== best && score(list[i]) === score(list[best])).map((i) => list[i][1].split(' ')[0]);
+  return `Make/model picked on Allianz: ${mm} ${variant} (SI range RM${range})${others.length ? `. Also possible: ${others.join(', ')} variant; check the car's variant` : ''}`;
 }
 
 // Price as shown on the Summary page ("Premium Information"). This one has the
 // car's real NCD; the e-Quotation PDF is printed at 0% NCD.
+// Paid extras listed on the Summary page ("Extra Cover / Premium (RM)" table).
+export function summaryAddons(text) {
+  const i = text.search(/Extra Cover\s+Premium \(RM\)/i);
+  if (i < 0) return [];
+  const out = [];
+  for (const line of text.slice(i).split('\n').slice(1, 30)) {
+    const m = /^\s*(.+?)\s+([\d,]+\.\d{2})\s*$/.exec(line);
+    if (!m) { if (out.length && line.trim()) break; continue; }
+    const label = m[1].trim();
+    const key = /PRIVATE HIRE|E-?HAILING/i.test(label) ? 'ehailing' : /WINDSCREEN/i.test(label) ? 'windscreen' : /SPECIAL PERIL|FLOOD/i.test(label) ? 'specialPerils' : /WAIVER/i.test(label) ? 'waiverExcess' : 'extra';
+    out.push({ key, label: label.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()), amount: Number(m[2].replace(/,/g, '')) });
+  }
+  return out;
+}
+
 export function summaryPremium(text) {
   const i = text.search(/Premium Summary/i);
   if (i < 0) return null;
@@ -278,6 +317,7 @@ export default {
     if (process.env.RPA_STOP_AT === 'customer') throw new Error('stopped at customer page');
     // Page 2: customer.
     let customerText = await bodyText(page);
+    const allianzName = /\bName\s*:?\s*\n?\s*:?\s*([A-Z][A-Z@'./ -]{2,60})\n/.exec(customerText)?.[1]?.trim();
     // Customer already on Allianz's records: details are shown, just press NEXT.
     if (/Customer Found/i.test(customerText) && !/Type of Coverage/i.test(customerText)) {
       step('customer found');
@@ -342,6 +382,7 @@ export default {
     if (await covBtn.count()) await press(covBtn);
     else await clickText(page, coverType === 'tpft' ? 'THIRD PARTY FIRE' : 'COMPREHENSIVE', { exact: false });
     step('cover type chosen');
+    if (process.env.RPA_STOP_AT === 'coverage') throw new Error('stopped at coverage');
     await sleep(page, 400);
     await tickNx(page, 'WAIVER OF COMPULSORY EXCESS', !!cover.addons?.waiverExcess);
     if (cover.addons?.windscreen) {
@@ -351,15 +392,54 @@ export default {
     }
     if (cover.addons?.specialPerils) await tickNx(page, 'SPECIAL PERILS', true);
     if (cover.addons?.ehailing) {
-      await clickText(page, 'ADD MORE', { exact: false });
-      await sleep(page, 600);
-      await ev(page, () => {
-        const row = [...document.querySelectorAll('tbody tr, .nx-table__row')].find((r) => (r.innerText || '').toUpperCase().includes('PRIVATE HIRE'));
-        const cb = row && row.querySelector('nx-checkbox, input[type="checkbox"]');
-        if (cb) cb.click();
-      });
-      await clickText(page, 'PROCEED');
-      await sleep(page, 600);
+      // Add More → "Extra Cover" pop-up (5 per page): show 50, tick
+      // PRIVATE HIRE CAR ENDORSEMENT, Proceed. Practice page: plain table.
+      const live = page.getByText(/^\s*ADD MORE\s*$/i).last();
+      if (await live.count()) await press(live); else await clickText(page, 'ADD MORE', { exact: false });
+      const pane = page.locator('.cdk-overlay-pane', { hasText: /Extra Cover/i }).first();
+      await pane.waitFor({ timeout: 8000 }).catch(() => {});
+      const perPage = pane.locator('nx-dropdown[formcontrolname="perPage"]').first();
+      if (await perPage.count()) {
+        await press(perPage);
+        await press(page.locator('nx-dropdown-item', { hasText: /^\s*50\s*$/ }).first());
+        await sleep(page, 1200);
+      }
+      const phc = pane.locator('nx-checkbox', { hasText: /PRIVATE HIRE/i }).first();
+      let ticked = false;
+      if (await phc.count()) {
+        if (!(await phc.locator('input').isChecked().catch(() => false))) await press(phc.locator('label').first());
+        ticked = await phc.locator('input').isChecked().catch(() => false);
+      } else {
+        ticked = await ev(page, () => {
+          const row = [...document.querySelectorAll('tbody tr, .nx-table__row')].find((r) => (r.innerText || '').toUpperCase().includes('PRIVATE HIRE'));
+          const cb = row && row.querySelector('nx-checkbox, input[type="checkbox"]');
+          if (cb) cb.click();
+          return !!cb;
+        });
+      }
+      step('private hire ticked', ticked);
+      const proceed = pane.locator('button', { hasText: /^\s*PROCEED\s*$/i }).first();
+      if (await proceed.count()) await press(proceed); else await clickText(page, 'PROCEED');
+      await sleep(page, 1200);
+      await dismissDialogs(page);
+      if (!ticked) notes.push('E-hailing: could not tick Private Hire Car on Allianz');
+      // At least one e-hailing driver: the ones given, else the policy holder.
+      // The table under "e-Hailing Drivers Name" (not the Named Drivers one above it).
+      const drvTable = page.getByText(/e-?Hailing Drivers? Name/i).first().locator('xpath=following::table[1]');
+      if (ticked && (await drvTable.count())) {
+        const holderName = owner.name && owner.name !== (process.env.DEFAULT_CUSTOMER_NAME || 'CUSTOMER') ? owner.name : allianzName;
+        const drivers = (cover.ehailingDrivers?.length ? cover.ehailingDrivers : [{ name: holderName, id }]).filter((d) => d.name && d.id);
+        const rowsD = drvTable.locator('tr').filter({ has: page.locator('input:not([disabled])') });
+        step('driver table', await rowsD.count(), (await drvTable.evaluate((t) => t.outerHTML.replace(/_ng[a-z]+-[^=]*=""/g, '').replace(/<!--[^>]*-->/g, '').replace(/\s+/g, ' ')).catch((e) => e.message)).slice(0, 1500));
+        for (let k = 0; k < Math.min(drivers.length, await rowsD.count()); k++) {
+          const ins = rowsD.nth(k).locator('input');
+          await typeInto(ins.nth(0), String(drivers[k].name).toUpperCase());
+          await typeInto(ins.nth(1), String(drivers[k].id).replace(/\D/g, ''));
+        }
+        if (drivers.length) notes.push(`E-hailing driver: ${cover.ehailingDrivers?.length ? drivers.map((d) => d.name).join(', ') : `policy holder (${String(drivers[0].name).toUpperCase()})`}`);
+        else notes.push('E-hailing: no driver name for Allianz: enter the customer name');
+        step('ehailing drivers', drivers.length);
+      }
     }
     await clickText(page, 'CLAIM DISCOUNT', { exact: false });
     await sleep(page, 1500);
@@ -376,6 +456,10 @@ export default {
     step('summary');
     let onScreen = null;
     for (let i = 0; i < 20 && !(onScreen = summaryPremium(await bodyText(page))); i++) await sleep(page, 500); // price loads a moment later
+    if (onScreen) {
+      const items = summaryAddons(await bodyText(page));
+      if (items.length && Math.abs(items.reduce((t, a) => t + a.amount, 0) - onScreen.addonTotal) < 0.06) onScreen.addons = items;
+    }
     step('summary premium', JSON.stringify(onScreen));
     if (process.env.RPA_STOP_AT === 'summary') throw new Error('stopped at summary');
     await clickText(page, 'GENERATE E-QUOTATION', { exact: false });
