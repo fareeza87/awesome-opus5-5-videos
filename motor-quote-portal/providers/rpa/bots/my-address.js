@@ -1,4 +1,6 @@
 // Malaysian postcode → state and town, for portals that ask for them.
+import { createRequire } from 'node:module';
+const { findPostcode } = createRequire(import.meta.url)('malaysia-postcodes');
 const POSTCODE_STATE = [
   [['01', '02'], 'PERLIS'],
   [['05', '06', '07', '08', '09'], 'KEDAH'],
@@ -25,21 +27,27 @@ const TOWNS = {
   47500: 'SUBANG JAYA', 47800: 'PETALING JAYA', 50000: 'KUALA LUMPUR', 50450: 'KUALA LUMPUR',
 };
 
+// Town for a postcode, e.g. 43000 → KAJANG, 81200 → JOHOR BAHRU.
+export function townFromPostcode(postcode) {
+  const hit = findPostcode(String(postcode || '').trim());
+  return hit?.found ? hit.city.toUpperCase() : TOWNS[String(postcode)] || null;
+}
+
 export function stateFromPostcode(postcode) {
   const p = String(postcode || '').slice(0, 2);
   return POSTCODE_STATE.find(([prefixes]) => prefixes.includes(p))?.[1] || null;
 }
 
 // Split a typed address into the line, town and state a portal wants.
-// Never invents an address: returns line '' when none was given.
+// With no street given, the town is used as the first line.
 export function splitAddress(address, postcode) {
   const state = stateFromPostcode(postcode);
-  let town = TOWNS[String(postcode)] || null;
+  let town = townFromPostcode(postcode);
   const parts = String(address || '')
     .replace(new RegExp(`\\b${postcode}\\b`), '')
     .split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean)
     .filter((s) => !state || s.toUpperCase().replace(/\s/g, '') !== state.replace(/[.\s]/g, ''));
   if (!town && parts.length > 1 && /^[A-Za-z\s]{3,30}$/.test(parts.at(-1))) town = parts.pop().toUpperCase();
   if (town) { const i = parts.findIndex((s) => s.toUpperCase() === town); if (i >= 0) parts.splice(i, 1); }
-  return { line: parts.join(', ').slice(0, 40), town: (town || '').slice(0, 30), state };
+  return { line: (parts.join(', ') || town || '').slice(0, 40), town: (town || '').slice(0, 30), state };
 }

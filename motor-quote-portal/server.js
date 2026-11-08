@@ -27,6 +27,7 @@ import { otpEvents, listOtp, submitOtp, inboundSms } from './providers/rpa/otp.j
 import { parseSlipPdf } from './slips/parse.js';
 import { comparisonFromSlips } from './slips/compare.js';
 import { readDocument, closeOcr } from './slips/grant.js';
+import { townFromPostcode } from './providers/rpa/bots/my-address.js';
 import { fiuuPayLink, fiuuConfigured } from './payments/fiuu.js';
 import { atomePayLink, atomeConfigured } from './payments/atome.js';
 
@@ -86,7 +87,24 @@ async function readBytes(req, max = 15_000_000) {
 const readJson = async (req) => JSON.parse((await readText(req)) || '{}');
 const readForm = async (req) => Object.fromEntries(new URLSearchParams(await readText(req)));
 
+// Customer details are often missing at quote stage. The agency's rule:
+// default name and phone, and the town from the postcode as the address.
+const DEFAULT_NAME = process.env.DEFAULT_CUSTOMER_NAME || 'CUSTOMER';
+const DEFAULT_PHONE = process.env.DEFAULT_CUSTOMER_PHONE || '012-2902990';
+function fillDefaults(body) {
+  const o = (body.owner ||= {});
+  const used = [];
+  if (!String(o.name || '').trim()) { o.name = DEFAULT_NAME; used.push(`name "${DEFAULT_NAME}"`); }
+  if (!String(o.phone || '').trim()) { o.phone = DEFAULT_PHONE; used.push(`phone ${DEFAULT_PHONE}`); }
+  if (!String(o.address || '').trim()) {
+    const town = townFromPostcode(o.postcode);
+    if (town) { o.address = town; used.push(`address "${town}" (from postcode)`); }
+  }
+  return used;
+}
+
 async function runQuote(body, staff, onEvent) {
+  const defaultsUsed = fillDefaults(body);
   const providers = currentProviders();
   if (!providers.length) {
     const errors = ['No insurer is switched on. Open ⚙︎ Settings, save the insurer login and tick "Quote this insurer".'];
@@ -97,6 +115,7 @@ async function runQuote(body, staff, onEvent) {
   if (result.ok) {
     result.id = randomUUID().slice(0, 8).toUpperCase();
     result.staff = staff || null;
+    if (defaultsUsed.length) result.defaultsUsed = defaultsUsed;
     await saveQuote(result);
   }
   return result;

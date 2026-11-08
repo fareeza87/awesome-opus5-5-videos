@@ -47,11 +47,11 @@ test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright &&
       assert.ok(x.referred);
       assert.match(x.reasons[0], /R012 Gap for 61 days/);
     });
-    await t.test('e-hailing and missing address are declined without touching the portal', async () => {
+    await t.test('e-hailing is declined; a missing address uses the town from the postcode', async () => {
       const eh = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', addons: { ehailing: true } } });
       assert.match(eh.reasons[0], /e-hailing/);
       const na = await quote(port, { owner: { ...owner, address: '' }, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', addons: {} } });
-      assert.match(na.reasons[0], /address/);
+      assert.equal(na.status, 'quoted', JSON.stringify(na.reasons));
     });
     await t.test('Allianz: full quote with e-hailing, windscreen and flood from the e-Quotation PDF', async () => {
       const x = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', windscreenSI: 1500, addons: { windscreen: true, specialPerils: true, ehailing: true } } }, 'mock-allianz');

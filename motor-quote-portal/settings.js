@@ -4,7 +4,12 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'settings.json');
+import os from 'node:os';
+
+// Tests never read the live settings (real insurers switched on there).
+const FILE = process.env.SETTINGS_FILE
+  || (process.env.NODE_TEST_CONTEXT ? path.join(os.tmpdir(), `mq-test-settings-${process.pid}.json`)
+    : path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'settings.json'));
 
 export function readSettings() {
   try { return existsSync(FILE) ? JSON.parse(readFileSync(FILE, 'utf8')) : {}; } catch { return {}; }

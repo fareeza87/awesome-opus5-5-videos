@@ -283,7 +283,8 @@ function renderFinal(r) {
       <div>
         <div class="muted">Ref ${esc(r.id)} · ${new Date(r.createdAt).toLocaleString('en-MY')}</div>
         <h2>${esc(vehicle.regNo)} · ${esc(vehicle.make)} ${esc(vehicle.model)} ${vehicle.year ?? ''}</h2>
-        <div class="muted">${esc(owner.name || owner.nric || 'Customer')}${age !== null ? ` · age ${age}` : ''} · ${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' ? ` · SI ${rm0(cover.sumInsured)}` : ''} · NCD ${cover.ncd}%</div>
+        <div class="muted">${esc(owner.name || owner.nric || 'Customer')}${age !== null ? ` · age ${age}` : ''} · ${COVER_TYPES[cover.coverType]}${cover.coverType !== 'tp' && cover.sumInsured > 0 ? ` · SI ${rm0(cover.sumInsured)}` : ''}${cover.ncd !== undefined && cover.ncd !== '' ? ` · NCD ${cover.ncd}%` : ''}</div>
+        ${r.defaultsUsed?.length ? `<div class="muted small">Not given, so defaults were used: ${esc(r.defaultsUsed.join(', '))}</div>` : ''}
       </div>
       <div class="stats">
         <div><b>${quoted.length}/${r.results.length}</b><span>quotes</span></div>

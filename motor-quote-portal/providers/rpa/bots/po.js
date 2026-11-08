@@ -81,7 +81,9 @@ export default {
     else await this.mainMenu(page);
     for (let i = 0; i < 10; i++) {
       for (const f of page.frames()) {
-        const row = f.locator('tr', { has: f.locator('td', { hasText: /^\s*Motor Quotation\s*$/ }) });
+        // The menu nests tables, so take the nearest row around the label,
+        // not an outer row that also holds every other menu item.
+        const row = f.locator('td', { hasText: /^\s*Motor Quotation\s*$/ }).locator('xpath=ancestor::tr[1]');
         const add = row.locator("a:has-text('Add'), input[value*='Add' i]");
         if (await add.count().catch(() => 0)) {
           await add.first().click();
@@ -115,11 +117,17 @@ export default {
     await (await find(page, "input[name='txtCurrRegNo']")).fill(plate);
     const info = await find(page, "input[name='btnINFO'], input[value*='GET INFO' i]");
     if (info) await info.click(); else await (await find(page, "input[name='txtCurrRegNo']")).press('Enter');
+    // GET INFO reloads the page with the car filled in from JPJ/ISM.
+    await page.waitForLoadState('load').catch(() => {});
     await page.waitForTimeout(1500);
     if (/no record found/i.test(await allText(page))) return { status: 'declined', reasons: ['P&O: vehicle not found at JPJ/ISM'] };
-    await (await find(page, `input[name='opPCCoInd'][value='${isCompany ? 'Y' : 'N'}']`))?.check();
+    const coverLabel = { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY, FIRE & THEFT' }[cover.coverType];
+    if (coverLabel) await selectIf(page, "select[name='cbxCoverPC']", { label: coverLabel });
+    await (await waitFind(page, `input[name='opPCCoInd'][value='${isCompany ? 'Y' : 'N'}']`))?.check();
     await (await find(page, "input[name='opEHailing'][value='N']"))?.check();
-    await (await find(page, "input[name='btnSubmit']")).click();
+    const submit1 = await waitFind(page, "input[name='btnSubmit']");
+    if (!submit1) throw new Error(`P&O screen 1: Submit not found. ${(await allText(page)).slice(0, 120)}`);
+    await submit1.click();
     if (!(await waitFind(page, "input[name='txtInsName']"))) throw new Error(`P&O screen 1: ${(await allText(page)).slice(0, 120)}`);
 
     // Screen 2: insured and risk details.
@@ -151,7 +159,7 @@ export default {
     await selectIf(page, "select[name='cbxCovType']", { comprehensive: '1', tpft: '2', tp: '3' }[coverType]);
 
     // Sum insured: P&O shows an allowed range. Use the shared sum insured,
-    // kept inside the range; with none given, the lowest allowed amount.
+    // kept inside the range; with none given, P&O's own suggested amount.
     const siBox = await find(page, "input[name='txtSumin']");
     let si = cover.sumInsured;
     let siNote = null;
@@ -160,7 +168,8 @@ export default {
       const m = /RM\s*([\d,]{4,}(?:\.\d{2})?)\s*(?:-|to)\s*RM\s*([\d,]{4,}(?:\.\d{2})?)/i.exec(rowText);
       if (m) {
         const [lo, hi] = [money(m[1]), money(m[2])].sort((a, b) => a - b);
-        if (!si) si = lo;
+        const suggested = money(await siBox.inputValue());
+        if (!si) si = suggested >= lo && suggested <= hi ? suggested : lo;
         else if (si < lo || si > hi) {
           const asked = si;
           si = Math.min(Math.max(si, lo), hi);
