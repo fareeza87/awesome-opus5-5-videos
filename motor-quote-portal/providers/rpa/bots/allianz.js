@@ -58,6 +58,8 @@ function dismissDialogs(page, code = '') {
         return 'concurrent';
       }
       if (t.includes('existing quotation')) { btn(m, 'NO')?.click(); return 'existing'; }
+      // Agency email used when the customer gave none (agency rule): confirm it.
+      if (t.includes("agent's email") || t.includes('agent\u2019s email')) { btn(m, 'YES')?.click(); return 'agent-email'; }
       if (t.includes('enq001') || t.includes('confirmation already taken') || t.includes('confirmation already been taken')) return 'renewed';
       if (/lapsed|betterment|notice|warning|e-invoice|consent not updated/.test(t)) { const b = btn(m, 'NEXT', 'OK', 'CLOSE', 'CONTINUE', 'PROCEED'); if (b) { b.click(); return 'notice'; } }
     }
@@ -289,6 +291,21 @@ export default {
     await pickDropdown(page, 'mobileNoCode', mobPrefix);
     await typeInto(page.locator('input[formcontrolname="mobileNo"]'), mobile.slice(2));
     await typeInto(page.locator('input[formcontrolname="email"]'), email);
+    // The agent-email warning appears a moment after the email box is left.
+    for (let i = 0; i < 10; i++) {
+      await sleep(page, 500);
+      const warns = page.locator('.cdk-overlay-pane', { hasText: /agent.s email/i });
+      if (await warns.count()) {
+        // The warning can be stacked more than once: confirm each copy.
+        for (let k = 0; k < 6 && (await warns.count()); k++) {
+          step('agent email warnings', await warns.count());
+          await warns.last().locator('button', { hasText: /^\s*YES\s*$/i }).first().click({ timeout: 4000 }).catch((e) => step('yes click', e.message.split('\n')[0]));
+          await sleep(page, 700);
+        }
+        step('agency email confirmed', !(await warns.count()));
+        break;
+      }
+    }
     await typeInto(page.locator('input[formcontrolname="address1"]'), owner.address.slice(0, 40));
     const pc = await pickDropdown(page, 'postCode', owner.postcode, owner.postcode);
     if (!pc.includes(owner.postcode)) return { status: 'declined', reasons: [`Allianz: postcode ${owner.postcode} not in their list`] };
