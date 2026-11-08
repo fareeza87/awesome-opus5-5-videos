@@ -265,6 +265,7 @@ export default {
     if (!owner.address) return { status: 'declined', reasons: ["Allianz needs the customer's address"] };
 
     const plate = vehicle.regNo.replace(/\s+/g, '').toUpperCase();
+    const notes = [];
     const id = String(owner.nric || '').replace(/[^a-zA-Z0-9]/g, '');
 
     // Policy Management → Cover Note.
@@ -296,7 +297,8 @@ export default {
     const vehInput = page.locator("input[type='text']:visible, input:not([type]):visible").first();
     await typeInto(vehInput, plate);
     step('plate typed');
-    const idType = owner.idType === 'passport' ? 'PASSPORT' : owner.idType === 'company' ? (id.length === 12 ? 'NEW BUSINESS' : 'BUSINESS') : 'NRIC';
+    // Agency rule: a company number that is all digits is the new SSM format.
+    const idType = owner.idType === 'passport' ? 'PASSPORT' : owner.idType === 'company' ? (/^\d+$/.test(id) ? 'NEW BUSINESS' : 'BUSINESS') : 'NRIC';
     // ID Type appears a moment after the plate is entered.
     for (let i = 0; i < 10 && (await page.locator('nx-dropdown').count()) < 2; i++) await sleep(page, 500);
     step('page 1 dropdowns', JSON.stringify(await page.locator('nx-dropdown, select').evaluateAll((ds) => ds.map((d) => [d.tagName, d.getAttribute('formcontrolname'), d.getAttribute('ng-reflect-name'), d.innerText.trim().slice(0, 40)]))));
@@ -376,6 +378,16 @@ export default {
       });
       if (r) (r.querySelector('.nx-radio__label, label, input') || r).click();
     });
+    // Company page: SST-registered No (agency rule); SME-registered from the
+    // request, else No (flagged so staff can check).
+    const answerNo = async (ctl, yes) => {
+      const g = page.locator(`nx-radio-group[formcontrolname="${ctl}"]`).first();
+      if (!(await g.count())) return false;
+      await press(g.locator('nx-radio', { hasText: yes ? /^\s*Yes\s*$/i : /^\s*No\s*$/i }).locator('label').first());
+      return true;
+    };
+    if (await answerNo('sstRegisteredInd', false)) step('company SST: No');
+    if (await answerNo('smeRegisteredInd', owner.sme === true)) notes.push(`Company SME-registered answered ${owner.sme === true ? 'Yes' : 'No'} on Allianz: check`);
     await press(page.locator('button', { hasText: /^\s*NEXT\s*$/i }).first());
     for (let i = 0; i < 20 && !page.url().toLowerCase().includes('coverage'); i++) { await dismissDialogs(page); await sleep(page, 400); }
     if (!page.url().toLowerCase().includes('coverage')) {
@@ -384,7 +396,6 @@ export default {
     }
     }
     step('coverage');
-    const notes = [];
     const mmNote = await pickMakeModel(page, vehicle);
     if (mmNote) notes.push(mmNote);
     step('make/model', mmNote);
@@ -419,9 +430,13 @@ export default {
       return (await box.locator('input').isChecked().catch(() => !on)) === on;
     };
     // Allianz has no "all drivers" cover: the agency rule asks for the waiver instead.
+    // Company-registered cars come with All Drivers built in and have no waiver box.
     const wantWaiver = !!(cover.addons?.waiverExcess || cover.addons?.allDrivers);
-    if (!(await tick(/WAIVER OF COMPULSORY EXCESS/i, wantWaiver)) && wantWaiver) notes.push('Allianz: could not tick Waiver of Compulsory Excess');
-    else if (wantWaiver && cover.addons?.allDrivers) notes.push('Allianz has no All Drivers cover: Waiver of Compulsory Excess (if not named driver) added instead');
+    const hasWaiverBox = (await page.locator('nx-checkbox', { hasText: /WAIVER OF COMPULSORY EXCESS/i }).count()) > 0 || !liveLayout;
+    if (hasWaiverBox) {
+      if (!(await tick(/WAIVER OF COMPULSORY EXCESS/i, wantWaiver)) && wantWaiver) notes.push('Allianz: could not tick Waiver of Compulsory Excess');
+      else if (wantWaiver && cover.addons?.allDrivers) notes.push('Allianz has no All Drivers cover: Waiver of Compulsory Excess (if not named driver) added instead');
+    }
     if (cover.addons?.windscreen) {
       if (!(await tick(/WINDSCREEN/i, true))) notes.push('Allianz: could not tick Windscreen');
       // Allianz works out the windscreen amount after the tick (spinner): wait for it.
