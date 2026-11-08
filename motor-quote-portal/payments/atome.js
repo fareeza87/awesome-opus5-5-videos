@@ -2,7 +2,8 @@
 // (portal.atome.my). Ported from the agency's script, with fixes:
 // the amount is never replaced by a default, the right outlet must be found,
 // and the link must come from this order (no "success" without a real link).
-// Settings: ATOME_PORTAL_USER, ATOME_PORTAL_PASS, ATOME_OUTLET (default "MetaFin").
+// Settings: ATOME_PORTAL_USER, ATOME_PORTAL_PASS, ATOME_OUTLET (default "MetaFin"),
+// ATOME_LINK_DAYS (link expiry, default 7 days at 23:59:59).
 import { runBot } from '../providers/rpa/pool.js';
 import { getPasswords } from '../providers/rpa/vault.js';
 
@@ -52,11 +53,36 @@ export async function atomePayLink({ plate, amount, orderId }) {
     const sel = modal.locator('.ant-select-selector, #outletId').first();
     if (await sel.count()) {
       await sel.click();
-      const opt = page.locator('.ant-select-item-option', { hasText: outlet }).first();
-      if (!(await opt.count())) throw new Error(`Atome outlet "${outlet}" not found (set ATOME_OUTLET)`);
+      await page.waitForTimeout(600);
+      const all = page.locator('.ant-select-item-option');
+      let opt = page.locator('.ant-select-item-option', { hasText: outlet }).first();
+      // An outlet account has just its own outlet: use it.
+      if (!(await opt.count()) && (await all.count()) === 1) opt = all.first();
+      if (!(await opt.count())) throw new Error(`Atome outlet "${outlet}" not found (set ATOME_OUTLET). Outlets: ${(await all.allInnerTexts()).join(', ')}`);
       await opt.click();
     }
     await modal.locator('#amount').fill(fixed);
+
+    // Expiry: the box defaults to "now", which Atome refuses. Like the links
+    // staff make: N days ahead (ATOME_LINK_DAYS, default 7) at 23:59:59, Malaysia time.
+    const days = Number(process.env.ATOME_LINK_DAYS || 7);
+    const day = new Date(Date.now() + 8 * 3600e3 + days * 864e5).toISOString().slice(0, 10);
+    const exp = modal.locator('#expirationTime, .ant-picker input').first();
+    if (await exp.count()) {
+      await exp.click();
+      const panel = page.locator('.ant-picker-dropdown:visible').last();
+      await panel.waitFor({ timeout: 5000 });
+      // Month may need moving forward when the date is next month.
+      for (let i = 0; i < 2 && !(await panel.locator(`td[title="${day}"]`).count()); i++) await panel.locator('.ant-picker-header-next-btn').first().click();
+      await panel.locator(`td[title="${day}"]`).first().click();
+      const cols = panel.locator('.ant-picker-time-panel-column');
+      for (const [c, v] of [[0, '23'], [1, '59'], [2, '59']]) {
+        if (await cols.nth(c).count()) await cols.nth(c).locator('.ant-picker-time-panel-cell-inner', { hasText: new RegExp(`^${v}$`) }).first().click();
+      }
+      await panel.locator('.ant-picker-ok button').first().click();
+      const set = await exp.inputValue();
+      if (!set.startsWith(day)) throw new Error(`Atome expiry not set (shows ${set})`);
+    }
     await modal.locator('#ecomOrderId').fill(orderId);
     await modal.locator("button:has-text('Create Link')").click();
 

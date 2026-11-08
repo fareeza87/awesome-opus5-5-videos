@@ -80,7 +80,8 @@ export function runBot(provider, bot, task) {
   const job = slot.queue.then(async () => {
     const creds = credentialsFor(provider);
     if (!slot.page || slot.page.isClosed()) {
-      slot.context = await (await browser()).newContext();
+      // Malaysia time, whatever the machine's clock is set to (dates and expiries on portals).
+      slot.context = await (await browser()).newContext({ timezoneId: process.env.RPA_TIMEZONE || 'Asia/Kuala_Lumpur' });
       slot.page = await slot.context.newPage();
       slot.page.setDefaultTimeout(Number(process.env.RPA_STEP_TIMEOUT_MS || 20000));
       slot.loggedIn = false;
