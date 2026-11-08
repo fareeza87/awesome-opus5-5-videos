@@ -213,8 +213,20 @@ export default {
     const formModel = (await f.locator("select[name='model_ID'] option:checked, select[name='ismmodelcode'] option:checked").first().innerText().catch(() => '')).toUpperCase();
     const want = String(vehicle.model || '').toUpperCase();
     const cells = await rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.trim().toUpperCase())));
+    if (process.env.RPA_DEBUG === '1') {
+      console.log('[ikhlas] form model', formModel, 'hidden', await f.evaluate(() => [...document.querySelectorAll('input')].filter((i) => /nvic|vix|ism|abi|model|variant/i.test(i.name) && i.value).map((i) => i.name + '=' + i.value).join(' | ')));
+      console.log('[ikhlas] rows', JSON.stringify(cells.map((c) => c.slice(0, 11).join(' / '))));
+    }
     const variantWord = formModel.split(/\s+/).pop();
-    let idx = cells.findIndex((c) => c.length > 6 && c[4] === variantWord);
+    // Same variant listed for several series (e.g. MY20 and MY24 RC): take the
+    // series of the car's year, else the newest.
+    const yr = String(vehicle.year || cells[0]?.[3] || '').slice(2);
+    const seriesRank = (c) => (new RegExp(`MY${yr}\\b`).test(c[5] || '') ? 1000 : 0) + Number(/MY(\d{2})/.exec(c[5] || '')?.[1] || 0);
+    const fullVariant = formModel.replace(/^\S+\s+[\d.]+\s*L?\s*/, '').trim(); // "X50 1.5 EXECUTIVE" → "EXECUTIVE"
+    // A variant given on the form (staff, grant) wins over the portal's own guess.
+    const given = cells.map((c, i) => i).filter((i) => want && cells[i].length > 6 && want.includes(cells[i][4]));
+    const byVariant = given.length ? given : cells.map((c, i) => i).filter((i) => cells[i].length > 6 && (cells[i][4] === fullVariant || cells[i][4] === variantWord));
+    let idx = byVariant.sort((a, b) => seriesRank(cells[b]) - seriesRank(cells[a]))[0] ?? -1;
     if (idx < 0 && want) idx = cells.findIndex((c) => c.join(' ').includes(want));
     if (idx < 0) { idx = 0; if (cells.length > 1) notes.push(`Ikhlas variant not matched: used ${cells[0].slice(1, 5).join(' ')}`); }
     const style = cells[idx]?.[6] || '';
@@ -292,6 +304,11 @@ export default {
 
     // Ikhlas's own slip: find it, print it to PDF, read it.
     const slipFrame = await formFrame(page, 'text=/Takaful Contribution Payable|CONTRIBUTION DETAIL|Contribution Pricing/i', 20000);
+    // Ikhlas prices even when the chosen car differs from ISM, but says so: not a valid quote.
+    const slipText = slipFrame ? await slipFrame.evaluate(() => document.body?.innerText || '').catch(() => '') : '';
+    if (/differ from ISM VIX|return to previous screen/i.test(slipText)) {
+      return { status: 'declined', reasons: [`Takaful Ikhlas: the car picked (${cells[idx]?.slice(4, 6).join(' ') || 'variant'}) differs from ISM's record; check the variant against the grant`] };
+    }
     if (!slipFrame) throw new Error(`Takaful Ikhlas: no quotation slip after Get A Quote${page.__ikDialogs.length ? ` (${page.__ikDialogs.join(' | ')})` : ''}`);
     // The live slip is the answer to a form post, so print the page as it is;
     // a slip in a sub-frame (practice portal) is opened on its own.
