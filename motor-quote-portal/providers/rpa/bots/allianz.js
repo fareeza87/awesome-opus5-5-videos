@@ -73,6 +73,12 @@ function dismissDialogs(page, code = '') {
 async function pickMakeModel(page, vehicle) {
   const box = page.locator('input[formcontrolname="makeModel"]');
   await box.waitFor({ state: 'attached', timeout: 6000 }).catch(() => {});
+  // The car's details (year, cc, last year's model) load a moment after the page.
+  for (let i = 0; i < 40; i++) {
+    const year = await page.locator('input[formcontrolname="vehicleMakeYear"]').inputValue().catch(() => 'x');
+    if (year || /Previous Year Selected Make/i.test(await bodyText(page).catch(() => ''))) break;
+    await sleep(page, 500);
+  }
   if (!(await box.count())) return null;
   // Allianz may remember a model from an earlier draft: keep it only if it fits the car.
   const current = (await box.inputValue()).trim().toUpperCase();
@@ -398,13 +404,21 @@ export default {
       if (await live.count()) await press(live); else await clickText(page, 'ADD MORE', { exact: false });
       const pane = page.locator('.cdk-overlay-pane', { hasText: /Extra Cover/i }).first();
       await pane.waitFor({ timeout: 8000 }).catch(() => {});
+      await pane.locator('nx-checkbox').first().waitFor({ timeout: 10000 }).catch(() => {}); // list loads after the pop-up
+      const phc = pane.locator('nx-checkbox', { hasText: /PRIVATE HIRE/i }).first();
       const perPage = pane.locator('nx-dropdown[formcontrolname="perPage"]').first();
-      if (await perPage.count()) {
+      if (!(await phc.count()) && (await perPage.count())) {
         await press(perPage);
         await press(page.locator('nx-dropdown-item', { hasText: /^\s*50\s*$/ }).first());
-        await sleep(page, 1200);
+        for (let i = 0; i < 10 && !(await phc.count()); i++) await sleep(page, 500);
       }
-      const phc = pane.locator('nx-checkbox', { hasText: /PRIVATE HIRE/i }).first();
+      // Still not shown: go through the pages (it is usually on page 2).
+      for (let pg = 2; pg <= 6 && !(await phc.count()); pg++) {
+        const link = pane.getByText(String(pg), { exact: true }).last();
+        if (!(await link.count())) break;
+        await press(link);
+        for (let i = 0; i < 6 && !(await phc.count()); i++) await sleep(page, 500);
+      }
       let ticked = false;
       if (await phc.count()) {
         if (!(await phc.locator('input').isChecked().catch(() => false))) await press(phc.locator('label').first());
@@ -427,7 +441,9 @@ export default {
       // The table under "e-Hailing Drivers Name" (not the Named Drivers one above it).
       const drvTable = page.getByText(/e-?Hailing Drivers? Name/i).first().locator('xpath=following::table[1]');
       if (ticked && (await drvTable.count())) {
-        const holderName = owner.name && owner.name !== (process.env.DEFAULT_CUSTOMER_NAME || 'CUSTOMER') ? owner.name : allianzName;
+        // Agency rule: the customer's name if known (form, else Allianz's records), otherwise CUSTOMER; ID = owner's IC.
+        const defaultName = process.env.DEFAULT_CUSTOMER_NAME || 'CUSTOMER';
+        const holderName = (owner.name && owner.name !== defaultName ? owner.name : allianzName) || defaultName;
         const drivers = (cover.ehailingDrivers?.length ? cover.ehailingDrivers : [{ name: holderName, id }]).filter((d) => d.name && d.id);
         const rowsD = drvTable.locator('tr').filter({ has: page.locator('input:not([disabled])') });
         step('driver table', await rowsD.count(), (await drvTable.evaluate((t) => t.outerHTML.replace(/_ng[a-z]+-[^=]*=""/g, '').replace(/<!--[^>]*-->/g, '').replace(/\s+/g, ' ')).catch((e) => e.message)).slice(0, 1500));
