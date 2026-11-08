@@ -39,10 +39,56 @@ export async function readDocument(bytes, { filename = '' } = {}) {
   } else {
     return { error: 'Send a photo (JPG/PNG) or a PDF' };
   }
-  const r = matchGrantOrPolicy(lines);
+  let r = matchGrantOrPolicy(lines);
+  // Photos of the grant's patterned paper: read a second, sharpened copy too
+  // and keep, field by field, whichever reading passes its check.
+  if (via === 'ocr') {
+    const sharp = await sharpened(bytes).catch(() => null);
+    if (sharp) r = mergeReadings(r, matchGrantOrPolicy(await ocr(sharp)));
+  }
   // OCR mixes up look-alike characters (S/5, 1/I, 0/O): flag what came from a photo.
   if (via === 'ocr') r.checks.push('Read from a photo: check the plate, IC and numbers against the document before quoting');
   return { via, ...r };
+}
+
+// Enlarged, greyscale, normalised copy of a photo (helps on the grant's pattern).
+async function sharpened(bytes) {
+  const Jimp = require('jimp');
+  const img = await Jimp.read(Buffer.from(bytes));
+  if (img.bitmap.width > 2400) return null;
+  return img.greyscale().scale(2).normalize().contrast(0.5).getBufferAsync(Jimp.MIME_PNG);
+}
+
+// VINs never contain I, O or Q: OCR's look-alikes are 1, 0, 0.
+const vinFix = (v) => (v && v.length === 17 ? v.toUpperCase().replace(/O|Q/g, '0').replace(/I/g, '1') : v);
+const validVin = (v) => /^[A-HJ-NPR-Z0-9]{17}$/.test(v || '');
+const postcodeFits = (pc, address) => {
+  try {
+    const { findPostcode } = require('malaysia-postcodes');
+    const hit = findPostcode(String(pc || ''));
+    return !!(hit?.found && new RegExp(`\\b${hit.city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(address || ''));
+  } catch { return false; }
+};
+const validId = (o) => (o?.idType === 'nric' ? /^\d{6}-?\d{2}-?\d{4}$/.test(o.nric || '') : o?.idType === 'company' ? /^(\d{12}|[A-Z]{0,2}\d{4,8}-[A-Z])$/.test(o.nric || '') : !!o?.nric);
+
+// Two readings of the same photo → one: for each field, the value that passes its check.
+function mergeReadings(a, b) {
+  const out = { ...a, fields: { owner: { ...a.fields.owner }, vehicle: { ...a.fields.vehicle }, cover: { ...a.fields.cover } } };
+  const ov = out.fields.vehicle; const bv = b.fields.vehicle || {};
+  const oo = out.fields.owner; const bo = b.fields.owner || {};
+  if (!(ov.regNo && PLATE.test(ov.regNo)) && bv.regNo && PLATE.test(bv.regNo)) ov.regNo = bv.regNo;
+  for (const k of ['year', 'model', 'cc', 'engineNo', 'origin']) if (!ov[k] && bv[k]) ov[k] = bv[k];
+  const vins = [ov.chassisNo, bv.chassisNo].map(vinFix);
+  ov.chassisNo = vins.find(validVin) || vins[0] || vins[1];
+  if (!ov.chassisNo) delete ov.chassisNo;
+  if (!validId(oo) && validId(bo)) { oo.idType = bo.idType; oo.nric = bo.nric; }
+  for (const k of ['name', 'address']) if (!oo[k] && bo[k]) oo[k] = bo[k];
+  // Postcode: the one whose town is in the address.
+  const pcs = [oo.postcode, bo.postcode].filter(Boolean);
+  const good = pcs.find((pc) => postcodeFits(pc, oo.address) || postcodeFits(pc, bo.address));
+  if (good) { if (oo.address && oo.postcode && oo.postcode !== good) oo.address = oo.address.replace(oo.postcode, good); oo.postcode = good; }
+  out.found = [...new Set([...(a.found || []), ...(b.found || [])])];
+  return out;
 }
 
 const PLATE = /^[A-Z]{1,3}\s?\d{1,4}\s?[A-Z]{0,2}$/;
@@ -51,6 +97,16 @@ const cleanPlate = (s) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^([
 export function matchGrantOrPolicy(lines) {
   // Scans often split words ("A l amat") or double the spaces: tidy first.
   lines = lines.map((l) => l.replace(/\bA\s?l\s?a\s?m\s?a\s?t\b/i, 'Alamat').replace(/\s{2,}/g, ' ').trim());
+  // Photos of the grant's patterned paper: OCR misreads labels and the ":".
+  lines = lines.map((l) => l
+    .replace(/^Nam[a-z]?\s+Pem[a-z]*\b/i, 'Nama Pemunya')
+    .replace(/^Al[a-z]{2,3}t\b/i, 'Alamat')
+    .replace(/\bDibu[a-z]*\b/i, 'Dibuat')
+    .replace(/\bTa[a-z]{2,4}h\s+Per[a-z]*daftaran\b/i, 'Tarikh Pendaftaran')
+    .replace(/(Ch?as[a-z]*\s*\/\s*)M[o0]\.?(\s*Enjin)/i, '$1No.$2')
+    .replace(/\bINPORT\b/, 'IMPORT')
+    // "Label + value", "Label © value", "Label = value" → "Label : value"
+    .replace(/^([A-Za-z][A-Za-z.\/ ]{2,40}?)\s+[+©=;|«»]\s+(?=\S)/, '$1 : '));
   const text = lines.join('\n');
   const up = text.toUpperCase();
   const isGrant = /SIJIL PEMILIKAN KENDERAAN|GERAN|\bVOC\b|JABATAN PENGANGKUTAN JALAN|PENDAFTARAN KENDERAAN|BAHAN BAKAR|KELAS KEGUNAAN/.test(up);

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@tesseract.js-data/eng": "^1.0.0",
+    "jimp": "^0.22.12",
     "malaysia-postcodes": "^3.0.0",
     "pdfjs-dist": "^4.10.38",
     "tesseract.js": "^5.1.1"
