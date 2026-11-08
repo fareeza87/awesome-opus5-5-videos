@@ -29,7 +29,7 @@ const RPA_DEMO = process.env.RPA_DEMO === '1' ? [
     rpa: { bot: 'ikhlas', defaultUrl: `http://localhost:${PORT}/mock-portal/ikhlas/loginTAK.jsp`, defaultUser: 'agent01', defaultPass: 'demo123' } },
   { id: 'mock-allianz', name: 'Practice Allianz (Allianz bot)', kind: 'conventional', mode: 'rpa', ehailing: { periods: ['annual'] },
     rpa: { bot: 'allianz', defaultUrl: `http://localhost:${PORT}/mock-portal/allianz/`, defaultUser: 'agent01', defaultPass: 'demo123', defaultSecret: 'blue' } },
-] : [];
+].filter((p) => !process.env.PRACTICE || process.env.PRACTICE.split(',').includes(p.id)) : [];
 
 // Real insurers switched on with INSURERS=po,allianz,ikhlas (in .env).
 const wanted = String(process.env.INSURERS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
