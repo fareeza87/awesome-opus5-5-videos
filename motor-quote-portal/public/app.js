@@ -348,6 +348,7 @@ function offerCard(o, i, selectable) {
       </ul>
     </details>` : ''}
     ${o.benefits?.length ? `<ul class="benefits">${o.benefits.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+    ${selectable && payConfig.fiuu && current?.id ? `<div class="pay no-print"><button class="ghost" data-pay="${esc(o.providerId)}">💳 Payment link</button><div class="pay-out"></div></div>` : ''}
   </article>`;
 }
 
@@ -545,4 +546,32 @@ $('#docFile').addEventListener('change', async (e) => {
   } catch (err) {
     msg.textContent = err.message;
   }
+});
+
+// ---------- Payment links ----------
+const payConfig = { fiuu: false };
+fetch('api/config').then((r) => (r.ok ? r.json() : {})).then((c) => Object.assign(payConfig, c)).catch(() => {});
+
+$('#results').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-pay]');
+  if (!btn || !current) return;
+  const out = btn.nextElementSibling;
+  btn.disabled = true; out.textContent = 'Making link…';
+  try {
+    const r = await fetch('api/payments/fiuu', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ quoteId: current.id, providerId: btn.dataset.pay }) });
+    if (r.status === 401) { location.href = 'login'; return; }
+    const p = await r.json();
+    if (!r.ok) throw new Error(p.error);
+    const { owner, vehicle } = current.request;
+    const first = (owner.name || '').split(' ')[0];
+    const text = `Salam${first ? ' ' + first : ''}, here is the payment link for ${vehicle.regNo} (${p.insurer}), ${rm(p.amount)}:\n${p.link}\n\nOrder ${p.orderId}. Thank you.`;
+    const phone = (owner.phone || '').replace(/\D/g, '').replace(/^0/, '60');
+    out.innerHTML = `<input readonly value="${esc(p.link)}" aria-label="Payment link">
+      <div class="pay-actions"><button class="ghost" data-copy>Copy</button><a class="btn primary" target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${encodeURIComponent(text)}">WhatsApp</a></div>`;
+    out.querySelector('[data-copy]').onclick = async (ev) => {
+      try { await navigator.clipboard.writeText(p.link); ev.target.textContent = 'Copied'; } catch { out.querySelector('input').select(); }
+    };
+  } catch (err) {
+    out.textContent = err.message;
+  } finally { btn.disabled = false; }
 });

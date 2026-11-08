@@ -24,6 +24,7 @@ import { otpEvents, listOtp, submitOtp, inboundSms } from './providers/rpa/otp.j
 import { parseSlipPdf } from './slips/parse.js';
 import { comparisonFromSlips } from './slips/compare.js';
 import { readDocument, closeOcr } from './slips/grant.js';
+import { fiuuPayLink, fiuuConfigured } from './payments/fiuu.js';
 
 // Printed on every quotation. Change to your agency's details.
 const AGENCY = {
@@ -144,6 +145,29 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { status: 'error', provider: filename || 'Slip', reasons: [`Could not read this PDF: ${e.message}`] });
       }
     }
+    // Payment link for the offer the customer chose; saved with the quote.
+    if (url.pathname === '/api/payments/fiuu' && req.method === 'POST') {
+      if (!fiuuConfigured()) return send(res, 400, { error: 'Fiuu not set up: add FIUU_MERCHANT_ID and FIUU_VERIFY_KEY to .env' });
+      const { quoteId, providerId } = await readJson(req);
+      const rows = await loadDb();
+      const row = rows.find((r) => r.id === quoteId);
+      const offer = row?.results.find((o) => o.providerId === providerId && o.status === 'quoted');
+      if (!offer) return send(res, 404, { error: 'Quote not found' });
+      const plate = String(row.request.vehicle.regNo || '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
+      const now = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kuala_Lumpur' }).format(new Date()).replace(/:/g, '');
+      const orderId = `${plate}_${now}`.slice(0, 32);
+      const { owner } = row.request;
+      try {
+        const link = fiuuPayLink({ orderId, amount: offer.total, name: owner.name, email: owner.email, mobile: owner.phone,
+          description: `Car insurance ${plate} - ${offer.provider}` });
+        const pay = { provider: 'Fiuu', insurer: offer.provider, amount: offer.total, orderId, link, createdAt: new Date().toISOString() };
+        row.payments = [pay, ...(row.payments || [])];
+        writing = writing.then(() => writeFile(DB, JSON.stringify(rows.slice(0, 2000), null, 1)));
+        await writing;
+        return send(res, 200, pay);
+      } catch (e) { return send(res, 400, { error: e.message }); }
+    }
+    if (url.pathname === '/api/config') return send(res, 200, { fiuu: fiuuConfigured() });
     // Car grant (geran) or old policy: photo or PDF → form fields.
     if (url.pathname === '/api/documents' && req.method === 'POST') {
       const bytes = await readBytes(req);

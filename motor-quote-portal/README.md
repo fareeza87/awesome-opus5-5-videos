@@ -119,6 +119,12 @@ The underwriting questions (claims in the last 3 years, traffic offences, drivin
 
 Login: `IKHLAS_PORTAL_USER`, `IKHLAS_PORTAL_PASS` (the old `TAKAFUL_USERNAME` / `TAKAFUL_PASSWORD`).
 
+### Fiuu payment links
+
+Each offer has a **💳 Payment link** button. It makes a Fiuu payment link for that insurer's total, with the customer's name, mobile and email filled in, and offers Copy or WhatsApp. No login to the Fiuu portal is needed: the link is signed with the merchant's Verify Key (`vcode = md5(amount + merchant ID + order ID + verify key)`). Links are saved with the quote in History. Order IDs are `PLATE_HHMMSS`, as before.
+
+Settings: `FIUU_MERCHANT_ID`, `FIUU_VERIFY_KEY` (Fiuu portal → Merchant Profile). For testing, set `FIUU_PAY_URL=https://sandbox-payment.fiuu.com/RMS/pay/` with sandbox details.
+
 ### Snap a car grant or old policy
 
 On the quote form, **📷 Car grant / old policy** opens the phone camera, or takes a PDF. It reads the plate, owner name, IC / company number, address and postcode, make and model, cc, year, chassis and engine number. From an old policy it also reads the sum insured and last year's NCD. Photos are read by OCR **on the portal computer itself** (tesseract.js, offline), so customer documents never leave the office. OCR can mix up look-alike characters (S/5, 1/I), so the portal reminds staff to check the plate, IC and numbers. Ported from the agency's `match_grant_or_policy`, with fixes: the insurer's own registration number is no longer taken as the customer's ID, the SST number is no longer read as a plate, and the plate is no longer read as the sum insured.
