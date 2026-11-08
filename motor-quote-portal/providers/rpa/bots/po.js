@@ -63,6 +63,8 @@ export default {
       if (/invalid agent id or password/i.test(await allText(page))) throw new Error('P&O rejected the agent ID or password');
     }
     await this.mainMenu(page);
+    await page.waitForLoadState('domcontentloaded').catch(() => {});
+    if (/AllPolicyTypeOldMenu/i.test(page.url())) page.__poMenu = page.url();
   },
 
   async isLoginPage(page) {
@@ -76,10 +78,13 @@ export default {
   },
 
   async openNewQuotation(page, ctx) {
-    await page.goto(ctx.url, { waitUntil: 'domcontentloaded' });
-    if (await waitFind(page, "input[name='txtUserName']", 3000)) await this.login(page, ctx);
+    // Go back to the menu page if we know it; P&O's front page logs you out.
+    await page.goto(page.__poMenu || ctx.url, { waitUntil: 'domcontentloaded' });
+    if (await waitFind(page, "input[name='txtUserName']", page.__poMenu ? 3000 : 8000)) await this.login(page, ctx);
     else await this.mainMenu(page);
     for (let i = 0; i < 10; i++) {
+      // The login page can show up late (slow load or expired session).
+      if (await find(page, "input[name='txtUserName']")) await this.login(page, ctx);
       for (const f of page.frames()) {
         // The menu nests tables, so take the nearest row around the label,
         // not an outer row that also holds every other menu item.

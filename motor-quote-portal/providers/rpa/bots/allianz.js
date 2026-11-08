@@ -15,11 +15,31 @@ import { auditAddons } from '../../../slips/audit.js';
 const SLIPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'slips');
 const TPFT_BEFORE_YEAR = Number(process.env.TPFT_BEFORE_YEAR || 2012);
 const sleep = (page, ms) => page.waitForTimeout(ms);
-const bodyText = (page) => page.evaluate(() => document.body.innerText || '');
+// Allianz's pages keep navigating while they load: if a read lands mid-way,
+// wait a moment and read again.
+// Allianz sometimes covers its buttons with an invisible layer: try a normal
+// click briefly, then press the button directly.
+// RPA_DEBUG=1 prints each step, for fixing a bot on a live portal.
+const step = (...a) => { if (process.env.RPA_DEBUG === '1') console.log('[allianz]', new Date().toISOString().slice(11, 19), ...a); };
+
+async function press(locator) {
+  try { await locator.click({ timeout: 4000 }); } catch { await locator.evaluate((b) => b.click()); }
+}
+
+async function ev(page, fn, arg) {
+  for (let i = 0; ; i++) {
+    try { return await page.evaluate(fn, arg); } catch (e) {
+      if (i >= 8 || !/context was destroyed|navigation|Target closed/i.test(e.message)) throw e;
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      await page.waitForTimeout(700);
+    }
+  }
+}
+const bodyText = (page) => ev(page, () => document.body.innerText || '');
 
 // Same pop-up handling as the original script.
 function dismissDialogs(page) {
-  return page.evaluate(() => {
+  return ev(page, () => {
     const modals = [...document.querySelectorAll('.cdk-overlay-pane, nx-modal-container, [role="dialog"], .modal')];
     const btn = (m, ...labels) => [...m.querySelectorAll('button, a, [role="button"]')].find((b) => labels.includes((b.textContent || '').trim().toUpperCase()));
     for (const m of modals) {
@@ -51,11 +71,11 @@ async function pickDropdown(page, control, match, filterText) {
   }
   const item = page.locator('.cdk-overlay-pane nx-dropdown-item', { hasText: match }).first();
   if (await item.count()) await item.click();
-  else await page.evaluate(() => document.querySelectorAll('.cdk-overlay-backdrop').forEach((b) => b.click()));
+  else await ev(page, () => document.querySelectorAll('.cdk-overlay-backdrop').forEach((b) => b.click()));
   return page.locator(`nx-dropdown[formcontrolname="${control}"]`).innerText();
 }
 
-const clickText = (page, text, { exact = true } = {}) => page.evaluate(([t, ex]) => {
+const clickText = (page, text, { exact = true } = {}) => ev(page, ([t, ex]) => {
   const hits = [...document.querySelectorAll('a, button, span, div, [role="button"]')]
     .filter((e) => e.offsetWidth > 0 && (ex ? (e.textContent || '').trim().toUpperCase() === t : (e.textContent || '').toUpperCase().includes(t)));
   // The innermost match is the real link or button, not a box around it.
@@ -64,7 +84,7 @@ const clickText = (page, text, { exact = true } = {}) => page.evaluate(([t, ex])
   return false;
 }, [text.toUpperCase(), exact]);
 
-const tickNx = (page, label, on = true) => page.evaluate(([l, want]) => {
+const tickNx = (page, label, on = true) => ev(page, ([l, want]) => {
   const cb = [...document.querySelectorAll('nx-checkbox')].find((c) => (c.innerText || '').toUpperCase().includes(l));
   if (!cb) return false;
   const inp = cb.querySelector('input');
@@ -89,9 +109,10 @@ export default {
       await sleep(page, 1500);
       if (/wrong answer|incorrect/i.test(await bodyText(page))) throw new Error('Allianz rejected the secret answer');
     }
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 60; i++) {
       await dismissDialogs(page);
-      if (page.url().toLowerCase().includes('alpha-sat/home') || /policy management/i.test(await bodyText(page))) return;
+      // Wait for the menu itself: the home address appears before the page has loaded.
+      if (/policy management/i.test(await bodyText(page).catch(() => ''))) { page.__azHome = page.url(); return; }
       await sleep(page, 500);
     }
     throw new Error('Allianz home page did not load after login');
@@ -119,14 +140,21 @@ export default {
     const id = String(owner.nric || '').replace(/[^a-zA-Z0-9]/g, '');
 
     // Policy Management → Cover Note.
-    if (!/policy management/i.test(await bodyText(page))) await page.goto(new URL('alpha-sat/home', ctx.url.endsWith('/') ? ctx.url : ctx.url + '/').href);
+    // After login Allianz moves to another address (alpha.allianz.com.my): go back to that home page.
+    if (!/policy management/i.test(await bodyText(page))) {
+      await page.goto(page.__azHome || new URL('alpha-sat/home', ctx.url.endsWith('/') ? ctx.url : ctx.url + '/').href);
+      for (let i = 0; i < 30 && !/policy management/i.test(await bodyText(page).catch(() => '')); i++) await sleep(page, 500);
+    }
     await clickText(page, 'Policy Management');
     await sleep(page, 600);
     await clickText(page, 'Cover Note');
     await sleep(page, 1200);
 
     // Page 1: privacy declaration (customer agreed, per the form) and the three consent questions answered "No".
-    await page.evaluate(() => {
+    // The declaration renders a moment after the page: wait for it, and answer
+    // it again whenever NEXT is still disabled (it is safe to repeat).
+    await page.locator('nx-checkbox').first().waitFor({ timeout: 15000 }).catch(() => {});
+    const answerDeclaration = () => ev(page, () => {
       document.querySelectorAll('nx-checkbox').forEach((cb) => { const i = cb.querySelector('input'); if (!i || !i.checked) (cb.querySelector('.nx-checkbox__label, label') || cb).click(); });
       ['edocConsentInd', 'einvoiceConsentInd', 'emarketingConsentInd'].forEach((g) => {
         const group = document.querySelector(`nx-radio-group[formcontrolname="${g}"], nx-radio-group[ng-reflect-name="${g}"]`);
@@ -134,30 +162,36 @@ export default {
         if (no) (no.querySelector('.nx-radio__label, label') || no).click();
       });
     });
+    await answerDeclaration();
 
+    step('declaration answered');
     const vehInput = page.locator("input[type='text']:visible, input:not([type]):visible").first();
     await typeInto(vehInput, plate);
+    step('plate typed');
     const idType = owner.idType === 'passport' ? 'PASSPORT' : owner.idType === 'company' ? (id.length === 12 ? 'NEW BUSINESS' : 'BUSINESS') : 'NRIC';
     if (await page.locator('nx-dropdown[formcontrolname="idType"]').count()) await pickDropdown(page, 'idType', idType);
     await typeInto(page.locator("input[type='text']:visible, input:not([type]):visible").nth(1), id);
 
+    step('id typed');
     // Wait for JPJ/ISM, then NEXT, until the customer page shows.
     const onPage2 = async () => /CUSTOMER INFORMATION|MOBILE NO/i.test(await bodyText(page));
     let moved = false;
     for (let i = 0; i < 40 && !moved; i++) {
-      if ((await dismissDialogs(page)) === 'renewed') return { status: 'declined', alreadyRenewed: true, reasons: ['Already renewed with another insurer (ENQ001: NCD confirmation taken)'] };
-      const issue = await page.evaluate(() => { const b = document.body.innerText || ''; if (b.includes('Effective date cannot be later than 90 days')) return 'Effective date is more than 90 days away'; if (/ENQ001|confirmation already taken/.test(b)) return 'renewed'; return null; });
-      if (issue === 'renewed') return { status: 'declined', alreadyRenewed: true, reasons: ['Already renewed with another insurer (ENQ001)'] };
+      if ((await dismissDialogs(page)) === 'renewed') return { status: 'declined', alreadyRenewed: true, reasons: ['Allianz ENQ001: NCD confirmation was already taken. The car may be already renewed elsewhere, or another quote for it took the confirmation. Check with the customer or try later'] };
+      const issue = await ev(page, () => { const b = document.body.innerText || ''; if (b.includes('Effective date cannot be later than 90 days')) return 'Effective date is more than 90 days away'; if (/ENQ001|confirmation already taken/.test(b)) return 'renewed'; return null; });
+      if (issue === 'renewed') return { status: 'declined', alreadyRenewed: true, reasons: ['Allianz ENQ001: NCD confirmation was already taken. The car may be already renewed elsewhere, or another quote for it took the confirmation. Check with the customer or try later'] };
       if (issue) return { status: 'declined', reasons: [`Allianz: ${issue}`] };
-      const next = page.locator('button', { hasText: /^\s*NEXT\s*$/ }).first();
+      const next = page.locator('button', { hasText: /^\s*NEXT\s*$/i }).first();
+      step('page 1 loop', i, 'next enabled', await next.isEnabled().catch(() => 'n/a'));
       if (await next.isEnabled().catch(() => false)) {
-        await next.click();
+        await press(next);
         await sleep(page, 800);
         moved = await onPage2();
-      } else await sleep(page, 500);
+      } else { if (i % 4 === 3) await answerDeclaration(); await sleep(page, 500); }
     }
     if (!moved) throw new Error(`Allianz page 1: NEXT stayed disabled (${(await bodyText(page)).slice(-120).trim()})`);
 
+    step('page 2');
     // Page 2: customer.
     const mobPrefix = '60' + mobile.slice(0, 2);
     await pickDropdown(page, 'mobileNoCode', mobPrefix);
@@ -166,17 +200,17 @@ export default {
     await typeInto(page.locator('input[formcontrolname="address1"]'), owner.address.slice(0, 40));
     const pc = await pickDropdown(page, 'postCode', owner.postcode, owner.postcode);
     if (!pc.includes(owner.postcode)) return { status: 'declined', reasons: [`Allianz: postcode ${owner.postcode} not in their list`] };
-    await page.evaluate(() => {
+    await ev(page, () => {
       const r = [...document.querySelectorAll('nx-radio, input[type="radio"]')].find((x) => {
         const t = (x.innerText || x.textContent || '').toUpperCase();
         return (t.includes('RESIDENTIAL') && !t.includes('NON')) || ['R', 'RESIDENTIAL'].includes(x.getAttribute('ng-reflect-value') || x.getAttribute('value'));
       });
       if (r) (r.querySelector('.nx-radio__label, label, input') || r).click();
     });
-    await page.locator('button', { hasText: /^\s*NEXT\s*$/ }).first().click();
+    await press(page.locator('button', { hasText: /^\s*NEXT\s*$/i }).first());
     for (let i = 0; i < 20 && !page.url().toLowerCase().includes('coverage'); i++) { await dismissDialogs(page); await sleep(page, 400); }
     if (!page.url().toLowerCase().includes('coverage')) {
-      const errs = await page.evaluate(() => [...document.querySelectorAll('nx-error, .nx-message--error')].map((e) => e.innerText.trim()).filter(Boolean).join(' | '));
+      const errs = await ev(page, () => [...document.querySelectorAll('nx-error, .nx-message--error')].map((e) => e.innerText.trim()).filter(Boolean).join(' | '));
       return { status: 'declined', reasons: [`Allianz customer page: ${errs || 'could not continue'}`] };
     }
 
@@ -199,7 +233,7 @@ export default {
     if (cover.addons?.ehailing) {
       await clickText(page, 'ADD MORE', { exact: false });
       await sleep(page, 600);
-      await page.evaluate(() => {
+      await ev(page, () => {
         const row = [...document.querySelectorAll('tbody tr, .nx-table__row')].find((r) => (r.innerText || '').toUpperCase().includes('PRIVATE HIRE'));
         const cb = row && row.querySelector('nx-checkbox, input[type="checkbox"]');
         if (cb) cb.click();
@@ -212,8 +246,8 @@ export default {
     await dismissDialogs(page);
     for (let i = 0; i < 15 && !page.url().toLowerCase().includes('summary'); i++) {
       await dismissDialogs(page);
-      const next = page.locator('button', { hasText: /^\s*NEXT\s*$/ }).first();
-      if (await next.isEnabled().catch(() => false)) await next.click();
+      const next = page.locator('button', { hasText: /^\s*NEXT\s*$/i }).first();
+      if (await next.isEnabled().catch(() => false)) await press(next);
       await sleep(page, 700);
     }
     if (!page.url().toLowerCase().includes('summary')) throw new Error('Allianz: could not reach the summary page');
