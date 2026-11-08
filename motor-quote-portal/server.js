@@ -87,7 +87,13 @@ const readJson = async (req) => JSON.parse((await readText(req)) || '{}');
 const readForm = async (req) => Object.fromEntries(new URLSearchParams(await readText(req)));
 
 async function runQuote(body, staff, onEvent) {
-  const result = await compareStream(body, currentProviders(), quoteOne, { lookup: lookupVehicle, onEvent });
+  const providers = currentProviders();
+  if (!providers.length) {
+    const errors = ['No insurer is switched on. Open ⚙︎ Settings, save the insurer login and tick "Quote this insurer".'];
+    onEvent?.({ type: 'error', errors });
+    return { ok: false, errors };
+  }
+  const result = await compareStream(body, providers, quoteOne, { lookup: lookupVehicle, onEvent });
   if (result.ok) {
     result.id = randomUUID().slice(0, 8).toUpperCase();
     result.staff = staff || null;

@@ -24,7 +24,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let current = null;       // finished comparison shown on screen
-let serverOnline = true;  // false = static demo, priced in the browser
+// The practice demo page (no server) sets window.MQ_DEMO. The real portal never
+// falls back to made-up prices: if the server can't be reached, it says so.
+let serverOnline = !window.MQ_DEMO;
+const offline = () => { if (window.MQ_DEMO) { serverOnline = false; return; } throw new Error("Can't reach the portal server. Check the connection and try again."); };
 
 // ---------- Setup ----------
 const pick = $('#pick');
@@ -154,7 +157,7 @@ async function streamQuotes(req, onEvent) {
       res = await fetch('api/quotes/stream', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(req) });
       if (res.status === 401) { location.href = 'login'; return null; }
       if (!res.ok || !(res.headers.get('content-type') || '').includes('ndjson')) throw new Error();
-    } catch { serverOnline = false; }
+    } catch { offline(); }
     if (serverOnline) {
       const reader = res.body.getReader();
       const dec = new TextDecoder();
@@ -407,7 +410,7 @@ async function loadHistory() {
       if (r.status === 401) { location.href = 'login'; return; }
       if (!r.ok || !(r.headers.get('content-type') || '').includes('json')) throw new Error();
       rows = await r.json();
-    } catch { serverOnline = false; }
+    } catch { if (window.MQ_DEMO) serverOnline = false; else { $('#history-list').textContent = "Can't reach the portal server."; return; } }
   }
   if (!serverOnline) {
     rows = localHistory()
