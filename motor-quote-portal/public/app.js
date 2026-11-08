@@ -51,6 +51,19 @@ for (const [key, a] of Object.entries(ADDONS)) {
     `<label class="chip"><input type="checkbox" name="addon" value="${key}" ${DEFAULT_ON.includes(key) ? 'checked' : ''}><span>${esc(a.label)}</span></label>`);
 }
 
+// Agency rule: cars made in 2012 or earlier are quoted Third Party, Fire & Theft.
+const TPFT_LAST_YEAR = 2012;
+const yearBox = form.querySelector('#year');
+const oldCarRule = () => {
+  const y = Number(yearBox.value);
+  if (y >= 1980 && y <= TPFT_LAST_YEAR && form.querySelector('#coverType').value === 'comprehensive') {
+    form.querySelector('#coverType').value = 'tpft';
+    $('#docMsg').textContent = `Car made in ${y}: cover set to Third Party, Fire & Theft (${TPFT_LAST_YEAR} or older).`;
+  }
+};
+yearBox.addEventListener('change', oldCarRule);
+yearBox.addEventListener('input', oldCarRule);
+
 // The e-hailing period picker only matters when e-hailing is ticked.
 const ehBox = form.querySelector('input[name=addon][value=ehailing]');
 const showEh = () => { $('#ehWrap').hidden = !ehBox.checked; };
@@ -229,7 +242,7 @@ function startLive(request) {
     onEvent(ev) {
       if (ev.type === 'lookup') {
         state.lookup = ev.found; state.request = ev.request; fillForm(ev.request, { onlyEmpty: true });
-        $('#vehHint').textContent = `· found ${ev.found.make} ${ev.found.model}`;
+        $('#vehHint').textContent = `· ${window.MQ_DEMO ? "SAMPLE car (made up)" : "found"} ${ev.found.make} ${ev.found.model}`;
       }
       if (ev.type === 'start') { state.providers = ev.providers; drawOffers(); }
       if (ev.type === 'quote') { state.results.set(ev.result.providerId, ev.result); drawOffers(); }
@@ -529,8 +542,11 @@ function fillFromParsed(r) {
   if (r.vehicle.cc) form.cc.value = r.vehicle.cc;
   if (r.vehicle.origin) form.origin.value = r.vehicle.origin;
   const missing = ['plate', 'NRIC|passport no.|company reg. no.', 'postcode'].filter((need) => !r.found.some((f) => need.split('|').includes(f)));
+  const y = Number(form.year.value);
+  const old = y >= 1980 && y <= TPFT_LAST_YEAR && form.coverType.value === 'comprehensive';
+  if (old) form.coverType.value = 'tpft';
   return r.found.length
-    ? `Filled: ${r.found.join(', ')}.${missing.length ? ` Still needed: ${missing.map((m) => m.split('|')[0]).join(', ')}.` : ''}`
+    ? `Filled: ${r.found.join(', ')}.${missing.length ? ` Still needed: ${missing.map((m) => m.split('|')[0]).join(', ')}.` : ''}${old ? ` Car made in ${y}: cover set to Third Party, Fire & Theft.` : ''}`
     : 'Nothing recognised.';
 }
 

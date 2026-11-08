@@ -12,7 +12,8 @@ import { splitAddress } from './my-address.js';
 import { auditAddons } from '../../../slips/audit.js';
 
 const SLIPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'slips');
-const TPFT_BEFORE_YEAR = Number(process.env.PO_TPFT_BEFORE_YEAR || 2012); // agency rule: older cars get TPFT
+// Agency rule: cars made in 2012 or earlier are quoted Third Party, Fire & Theft.
+const TPFT_LAST_YEAR = Number(process.env.TPFT_LAST_YEAR || 2012);
 const money = (s) => Number(String(s).replace(/[^\d.]/g, ''));
 
 // The portal uses frames: look in every frame for the first match.
@@ -131,7 +132,15 @@ export default {
     await page.waitForLoadState('load').catch(() => {});
     await page.waitForTimeout(1500);
     if (/no record found/i.test(await allText(page))) return { status: 'declined', reasons: ['P&O: vehicle not found at JPJ/ISM'] };
-    const coverLabel = { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY, FIRE & THEFT' }[cover.coverType];
+    // Cover is chosen here; the year comes from P&O's JPJ/ISM lookup when the form has none.
+    const year = Number(vehicle.year) || Number(await (await find(page, "input[name='txtYrMake']"))?.inputValue().catch(() => '')) || 0;
+    let coverType = cover.coverType;
+    const notes = [];
+    if (coverType === 'comprehensive' && year && year <= TPFT_LAST_YEAR) {
+      coverType = 'tpft';
+      notes.push(`Car made in ${year} (${TPFT_LAST_YEAR} or older): quoted Third Party, Fire & Theft`);
+    }
+    const coverLabel = { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY, FIRE & THEFT' }[coverType];
     if (coverLabel) await selectIf(page, "select[name='cbxCoverPC']", { label: coverLabel });
     await (await waitFind(page, `input[name='opPCCoInd'][value='${isCompany ? 'Y' : 'N'}']`))?.check();
     await (await find(page, "input[name='opEHailing'][value='N']"))?.check();
@@ -159,13 +168,6 @@ export default {
     await fillIf(page, "input[name='txtMailTown']", addr.town);
     if (addr.state) await selectIf(page, "select[name='txtMailState']", addr.state);
 
-    const notes = [];
-    let coverType = cover.coverType;
-    const year = Number(vehicle.year);
-    if (coverType === 'comprehensive' && year && year < TPFT_BEFORE_YEAR) {
-      coverType = 'tpft';
-      notes.push(`Car made before ${TPFT_BEFORE_YEAR}: quoted Third Party, Fire & Theft`);
-    }
     await selectIf(page, "select[name='cbxCovType']", { comprehensive: '1', tpft: '2', tp: '3' }[coverType]);
 
     // Sum insured: P&O shows an allowed range. Use the shared sum insured,

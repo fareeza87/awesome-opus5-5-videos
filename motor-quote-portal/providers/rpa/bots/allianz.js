@@ -13,7 +13,8 @@ import { parseSlipPdf } from '../../../slips/parse.js';
 import { auditAddons } from '../../../slips/audit.js';
 
 const SLIPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'slips');
-const TPFT_BEFORE_YEAR = Number(process.env.TPFT_BEFORE_YEAR || 2012);
+// Agency rule: cars made in 2012 or earlier are quoted Third Party, Fire & Theft.
+const TPFT_LAST_YEAR = Number(process.env.TPFT_LAST_YEAR || 2012);
 const sleep = (page, ms) => page.waitForTimeout(ms);
 // Allianz's pages keep navigating while they load: if a read lands mid-way,
 // wait a moment and read again.
@@ -446,9 +447,10 @@ export default {
 
     // Coverage and add-ons.
     let coverType = cover.coverType;
-    if (coverType === 'comprehensive' && Number(vehicle.year) && Number(vehicle.year) < TPFT_BEFORE_YEAR) {
+    const year = Number(vehicle.year) || Number(await page.locator('input[formcontrolname="vehicleMakeYear"]').inputValue().catch(() => '')) || 0;
+    if (coverType === 'comprehensive' && year && year <= TPFT_LAST_YEAR) {
       coverType = 'tpft';
-      notes.push(`Car made before ${TPFT_BEFORE_YEAR}: quoted Third Party, Fire & Theft`);
+      notes.push(`Car made in ${year} (${TPFT_LAST_YEAR} or older): quoted Third Party, Fire & Theft`);
     }
     // "Type of Coverage" is a folded section: open it, then press the cover button.
     const covHeader = page.locator('nx-expansion-panel-header', { hasText: /Type of Coverage/i }).first();

@@ -15,7 +15,8 @@ import { splitAddress } from './my-address.js';
 
 const SHOTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'rpa-errors');
 const SLIPS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'data', 'slips');
-const TPFT_BEFORE_YEAR = Number(process.env.TPFT_BEFORE_YEAR || 2012);
+// Agency rule: cars made in 2012 or earlier are quoted Third Party, Fire & Theft.
+const TPFT_LAST_YEAR = Number(process.env.TPFT_LAST_YEAR || 2012);
 
 async function formFrame(page, selector, ms = 15000) {
   const end = Date.now() + ms;
@@ -237,7 +238,7 @@ export default {
 
     const year = Number(await f.locator("input[name='makeyear']").first().inputValue().catch(() => '')) || Number(vehicle.year);
     let coverType = cover.coverType;
-    if (coverType === 'comprehensive' && year && year < TPFT_BEFORE_YEAR) { coverType = 'tpft'; notes.push(`Car made before ${TPFT_BEFORE_YEAR}: quoted Third Party, Fire & Theft`); }
+    if (coverType === 'comprehensive' && year && year <= TPFT_LAST_YEAR) { coverType = 'tpft'; notes.push(`Car made in ${year} (${TPFT_LAST_YEAR} or older): quoted Third Party, Fire & Theft`); }
     // Change coverage only if it differs: changing it resets the market value.
     if (coverType !== cover.coverType) await pickOption(f, 'cover_type', (t) => t === { comprehensive: 'COMPREHENSIVE', tpft: 'THIRD PARTY FIRE AND THEFT', tp: 'THIRD PARTY' }[coverType]);
 
