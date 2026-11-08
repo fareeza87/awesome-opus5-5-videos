@@ -40,3 +40,17 @@ test('photo of a car grant is read with offline OCR', { timeout: 60000 }, async 
   assert.equal(r.fields.vehicle.cc, 1496);
   assert.match(r.checks[0], /check the plate, IC/);
 });
+
+test('new-format grant (VOC) as laid out on a real scan', () => {
+  const r = matchGrantOrPolicy([
+    'SIJIL  PEMILIKAN  KENDERAAN', '(VEHICLE  OWNERSHIP  CERTIFICATE)', 'JABATAN  PENGANGKUTAN  JALAN  MALAYSIA',
+    'No. Pendaftaran  :  ABC1234', 'No.  ID  :  900101145678', 'Nama Pemunya Berdaftar  :  ALI BIN ABU',
+    'A l amat  :  NO 1. TAMAN CONTOH', '25250 BESERAH PAHANG',
+    'No.  Chasis  /  No.  Enjin  :  PM2B200S003200000  /  H47B000',
+    'Buatan  /  Nama Model  : PERODUA /  AXIA  -  1000  G  (AUTO)', 'Keupayaan Enjin  :  998', 'Bahan  Bakar  :  PETROL',
+    'Status  Asal  :  PEMASANGAN TEMPATAN', 'Kelas  Kegunaan  :  PERSENDIRIAN-MOTOKAR INDIVIDU', 'Jenis  Badan  /  Tahun  Dibuat  :  MOTOKAR /  2016',
+  ]);
+  assert.equal(r.docType, 'grant');
+  assert.deepEqual(r.fields.vehicle, { regNo: 'ABC 1234', year: 2016, model: 'PERODUA AXIA 1000 G (AUTO)', cc: 998, chassisNo: 'PM2B200S003200000', engineNo: 'H47B000', origin: 'local' });
+  assert.deepEqual(r.fields.owner, { idType: 'nric', nric: '900101-14-5678', name: 'ALI BIN ABU', address: 'NO 1. TAMAN CONTOH, 25250 BESERAH PAHANG', postcode: '25250' });
+});

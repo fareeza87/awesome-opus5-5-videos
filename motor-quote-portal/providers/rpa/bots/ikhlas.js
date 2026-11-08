@@ -150,9 +150,10 @@ export default {
     await f.locator("input[value='Black List Checking']").first().click();
     await page.waitForTimeout(1500);
     if (page.__ikDialogs.some((m) => /not found|black ?list/i.test(m))) return { status: 'declined', reasons: [`Takaful Ikhlas: ${page.__ikDialogs.at(-1)}`] };
-    if (!(await f.locator("select[name='vehiclefrom']").first().inputValue().catch(() => 'x'))) {
+    if (vehicle.origin) await pickOption(f, 'vehiclefrom', (t) => (vehicle.origin === 'imported' ? t.includes('IMPORT') : t.includes('LOCALLY ASSEMBLED')));
+    else if (!(await f.locator("select[name='vehiclefrom']").first().inputValue().catch(() => 'x'))) {
       await pickOption(f, 'vehiclefrom', (t) => t.includes('LOCALLY ASSEMBLED'));
-      notes.push('Sent as locally assembled: check if the car is imported');
+      notes.push('Sent as locally assembled: check if the car is imported (snap the grant to fill this)');
     }
 
     // Renewal starts the day after the previous policy ends.

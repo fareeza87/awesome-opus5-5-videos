@@ -110,7 +110,7 @@ function readForm() {
     vehicle: {
       regNo: f.regNo.value.trim().toUpperCase().replace(/\s+/g, ' '),
       make: f.make.value.trim() || undefined, model: f.model.value.trim() || undefined,
-      year: num(f.year), cc: num(f.cc), seats: num(f.seats),
+      year: num(f.year), cc: num(f.cc), seats: num(f.seats), origin: f.origin.value || undefined,
     },
     cover: {
       coverType: f.coverType.value,
@@ -516,6 +516,7 @@ function fillFromParsed(r) {
   for (const [k, on] of Object.entries(r.cover.addons || {})) { const c = form.querySelector(`input[name=addon][value=${k}]`); if (c) c.checked = on; }
   showEh();
   if (r.vehicle.cc) form.cc.value = r.vehicle.cc;
+  if (r.vehicle.origin) form.origin.value = r.vehicle.origin;
   const missing = ['plate', 'NRIC|passport no.|company reg. no.', 'postcode'].filter((need) => !r.found.some((f) => need.split('|').includes(f)));
   return r.found.length
     ? `Filled: ${r.found.join(', ')}.${missing.length ? ` Still needed: ${missing.map((m) => m.split('|')[0]).join(', ')}.` : ''}`

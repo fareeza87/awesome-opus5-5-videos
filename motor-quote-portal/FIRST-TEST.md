@@ -39,6 +39,16 @@ Use a real renewal you were going to quote anyway:
 3. For Takaful Ikhlas: fill in **Driver details** (claims, offences, driving experience, race, religion, occupation).
 4. Click **Get quotes** and watch the bot's browser window.
 
+## Phones outside the office (ngrok)
+
+Stop the old bot server first (it uses port 5000). With `PORT=5000` in `.env`, your usual command opens the new portal instead:
+
+```
+.\ngrok.exe http 127.0.0.1:5000 --url childcare-routine-enviable.ngrok-free.dev --log stdout
+```
+
+Staff open https://childcare-routine-enviable.ngrok-free.dev on any phone, tap "Visit Site" on ngrok's notice, then sign in with `PORTAL_PASSWORD`. Set a strong password: this address is open to the whole internet.
+
 ## 4. Check
 
 - Compare the price on the screen with the insurer's slip saved in `data\slips\`. They must match.

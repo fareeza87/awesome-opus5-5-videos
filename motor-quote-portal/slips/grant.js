@@ -49,6 +49,8 @@ const PLATE = /^[A-Z]{1,3}\s?\d{1,4}\s?[A-Z]{0,2}$/;
 const cleanPlate = (s) => s.toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^([A-Z]+)(\d+)([A-Z]*)$/, (m, a, b, c) => `${a} ${b}${c}`);
 
 export function matchGrantOrPolicy(lines) {
+  // Scans often split words ("A l amat") or double the spaces: tidy first.
+  lines = lines.map((l) => l.replace(/\bA\s?l\s?a\s?m\s?a\s?t\b/i, 'Alamat').replace(/\s{2,}/g, ' ').trim());
   const text = lines.join('\n');
   const up = text.toUpperCase();
   const isGrant = /SIJIL PEMILIKAN KENDERAAN|GERAN|\bVOC\b|JABATAN PENGANGKUTAN JALAN|PENDAFTARAN KENDERAAN|BAHAN BAKAR|KELAS KEGUNAAN/.test(up);
@@ -82,20 +84,28 @@ export function matchGrantOrPolicy(lines) {
   // Year, model, cc, chassis, engine.
   const year = after(/tahun\s*dibuat|tahun\s*diperbuat|year\s*of\s*(manufacture|make)/i, /\b((?:19|20)\d{2})\b/);
   if (year) set(fields.vehicle, 'year', Number(year), 'year');
+  const combined = /buatan\s*\/\s*nama\s*model\s*:?\s*(.+)$/im.exec(text)?.[1];
   const make = after(/^\s*buatan\b(?!\s*&|\s*\/)/i, /^([A-Z][A-Z0-9 .\-()]{2,30})$/i, 0)
     || /^\s*buatan\b[^A-Za-z]*([A-Z][A-Z-]{2,20})\s*$/im.exec(text)?.[1];
   let model = after(/nama\s*model|buatan\s*\/\s*(nama\s*)?model|make\s*(&|and)\s*model(\s*of\s*vehicle)?|vehicle\s*model/i, /^([A-Z][A-Z0-9 .\-()/]{2,40}?)(?:\s{2,}|\s+(?:cubic|keupayaan|tahun|year)\b|$)/i, 2);
   if (model && make && !model.toUpperCase().includes(make.toUpperCase())) model = `${make} ${model}`;
   if (!model && make) model = make;
+  if (combined) model = combined.replace(/\s*\/\s*/g, ' ').replace(/\s+-\s+/g, ' ').trim();
   if (model) model = model.replace(/^(\s*(of|vehicle|nama\s*model|model)\b[\s:]*)+/i, '').trim();
   if (model) set(fields.vehicle, 'model', model.toUpperCase(), 'model');
   const cc = /\b(\d{1,2},\d{3}|\d{3,4})(?:\.\d+)?\s*(?:cc|c\.c\.)/i.exec(text)?.[1]
     || after(/keupayaan\s*enjin|cubic\s*capacity/i, /\b(\d{1,2},\d{3}|\d{3,4})(?:\.\d+)?\b/, 1);
   if (cc) set(fields.vehicle, 'cc', Number(cc.replace(/,/g, '')), 'cc');
-  const chassis = after(/no\.?\s*casis|chassis\s*no/i, /\b([A-Z0-9]{10,20})\b/i, 1);
+  const pair = /no\.?\s*ch?as+is\s*\/\s*no\.?\s*enjin\s*:?\s*([A-Z0-9]{8,20})\s*\/\s*([A-Z0-9]{5,20})/i.exec(text);
+  const chassis = pair?.[1] || after(/no\.?\s*ch?as+is|chassis\s*no/i, /\b([A-Z0-9]{10,20})\b/i, 1);
   if (chassis) set(fields.vehicle, 'chassisNo', chassis.toUpperCase(), 'chassis no.');
-  const engine = after(/no\.?\s*enjin|engine\s*no/i, /\b([A-Z0-9]{6,20})\b/i, 1);
+  const engine = pair?.[2] || after(/no\.?\s*enjin|engine\s*no/i, /\b([A-Z0-9]{6,20})\b/i, 1);
   if (engine) set(fields.vehicle, 'engineNo', engine.toUpperCase(), 'engine no.');
+
+  // Locally assembled or imported ("Status Asal" on the grant).
+  const origin = /status\s*asal\s*:?\s*([^\n]+)/i.exec(text)?.[1] || '';
+  if (/tempatan|local|ckd/i.test(origin)) set(fields.vehicle, 'origin', 'local', 'local/imported');
+  else if (/import|cbu|terpakai|recond/i.test(origin)) set(fields.vehicle, 'origin', 'imported', 'local/imported');
 
   // Owner ID: passport, company, NRIC. Ignore the insurer's / agent's own
   // registration numbers (header lines with BERHAD, SST, PIDM, agency codes).
@@ -120,7 +130,7 @@ export function matchGrantOrPolicy(lines) {
   }
 
   // Owner name.
-  const name = after(/nama\s*pemilik(\s*berdaftar)?|the\s*insured|pihak\s*diinsuranskan|\bproposer\b|\bname\b|\bnama\b|participant/i,
+  const name = after(/nama\s*pem(ilik|unya)(\s*berdaftar)?|the\s*insured|pihak\s*diinsuranskan|\bproposer\b|\bname\b|\bnama\b|participant/i,
     /^([A-Z][A-Z@'./\s-]{2,60}?)\s*$/i, 2);
   if (name && !/alamat|address|jalan|taman|schedule|quotation|tel\b/i.test(name)) set(fields.owner, 'name', name.trim().toUpperCase(), 'name');
 
