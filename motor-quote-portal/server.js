@@ -159,7 +159,7 @@ function ehailingRoute(body, providers) {
   }
   return kept;
 }
-const BOTS_BUILT = ['allianz', 'po', 'ikhlas'];
+const BOTS_BUILT = ['allianz', 'po', 'ikhlas', 'generali'];
 
 async function runQuote(body, staff, onEvent) {
   const defaultsUsed = fillDefaults(body);

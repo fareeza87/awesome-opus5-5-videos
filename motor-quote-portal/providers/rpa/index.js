@@ -4,6 +4,7 @@ import mockPortal from './bots/mock-portal.js';
 import po from './bots/po.js';
 import allianz from './bots/allianz.js';
 import ikhlas from './bots/ikhlas.js';
+import generali from './bots/generali.js';
 
 // Register one bot per insurer portal here.
 const BOTS = {
@@ -11,6 +12,7 @@ const BOTS = {
   po,
   allianz,
   ikhlas,
+  generali,
 };
 
 function botFor(provider) {

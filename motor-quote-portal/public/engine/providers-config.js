@@ -110,7 +110,7 @@ export const PANEL = [
     rpa: { bot: 'allianz', defaultUrl: 'https://sat.allianz.com.my/' },
     ehailing: { periods: ['annual'] }, addonFixed: { allDrivers: 50 }, validDays: 30,
     notes: 'Agreed value with recommended sum insured range. All drivers RM50.' },
-  { id: 'generali', name: 'Generali Insurance Malaysia', kind: 'conventional', mode: 'rpa', rpa: { bot: 'generali' }, enabled: false,
+  { id: 'generali', name: 'Generali Insurance Malaysia', kind: 'conventional', mode: 'rpa', rpa: { bot: 'generali', defaultUrl: 'https://omni.generali.com.my/login' }, enabled: false,
     ehailing: { periods: ['annual'], fixed: 1950 }, validDays: 30,
     notes: 'E-hailing annual only, fixed RM1,950. ISM-ABI agreed value.' },
   { id: 'zurich', name: 'Zurich General Takaful', kind: 'takaful', mode: 'rpa', rpa: { bot: 'zurich' }, enabled: false, onHold: 'Build after the other insurers are live',
