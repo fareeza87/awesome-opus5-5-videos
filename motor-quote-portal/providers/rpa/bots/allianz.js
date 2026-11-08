@@ -408,7 +408,7 @@ export default {
     }
     // "Type of Coverage" is a folded section: open it, then press the cover button.
     const covHeader = page.locator('nx-expansion-panel-header', { hasText: /Type of Coverage/i }).first();
-    if ((await covHeader.getAttribute('aria-expanded').catch(() => null)) === 'false') { await press(covHeader); await sleep(page, 800); }
+    if ((await covHeader.count()) && (await covHeader.getAttribute('aria-expanded').catch(() => null)) === 'false') { await press(covHeader); await sleep(page, 800); }
     const covBtn = page.locator('nx-expansion-panel button', { hasText: coverType === 'tpft' ? /Third Party,? Fire/i : /^\s*Comprehensive\s*$/i }).first();
     if (await covBtn.count()) await press(covBtn);
     else await clickText(page, coverType === 'tpft' ? 'THIRD PARTY FIRE' : 'COMPREHENSIVE', { exact: false });
@@ -424,7 +424,8 @@ export default {
       if (!(await box.count())) return tickNx(page, String(label).replace(/[\\/^$]/g, '').toUpperCase(), on);
       for (let i = 0; i < 3; i++) {
         if ((await box.locator('input').isChecked().catch(() => !on)) === on) return true;
-        await press(box.locator('label').first());
+        const lbl = box.locator('label').first();
+        await press((await lbl.count()) ? lbl : box);
         await sleep(page, 700);
       }
       return (await box.locator('input').isChecked().catch(() => !on)) === on;
@@ -533,7 +534,10 @@ export default {
     // Generate e-Quotation and download the official PDF. Never "Send to JPJ".
     step('summary');
     let onScreen = null;
-    for (let i = 0; i < 20 && !(onScreen = summaryPremium(await bodyText(page))); i++) await sleep(page, 500); // price loads a moment later
+    for (let i = 0; i < 20 && !(onScreen = summaryPremium(await bodyText(page))); i++) { // price loads a moment later
+      if (!liveLayout && i >= 1) break;
+      await sleep(page, 500);
+    }
     if (onScreen) {
       const items = summaryAddons(await bodyText(page));
       if (items.length && Math.abs(items.reduce((t, a) => t + a.amount, 0) - onScreen.addonTotal) < 0.06) onScreen.addons = items;

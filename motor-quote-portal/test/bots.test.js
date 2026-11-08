@@ -57,9 +57,10 @@ test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright &&
       const x = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', windscreenSI: 1500, addons: { windscreen: true, specialPerils: true, ehailing: true } } }, 'mock-allianz');
       assert.equal(x.status, 'quoted', JSON.stringify(x.reasons));
       assert.match(x.insurerRef, /^QKJ\d+/);
-      assert.equal(x.addons.length, 3);
+      assert.equal(x.addons.length, 4); // + waiver of compulsory excess (agency all-drivers rule)
+      assert.ok(x.addons.some((a) => /waiver/i.test(a.label)));
       assert.ok(x.addons.some((a) => /private hire/i.test(a.label)));
-      assert.deepEqual(x.notes, []);
+      assert.deepEqual(x.notes, ['Allianz has no All Drivers cover: Waiver of Compulsory Excess (if not named driver) added instead']);
       assert.ok(Math.abs(x.gross + x.sst + x.stampDuty - x.total) < 0.06);
     });
     await t.test('Allianz: already renewed elsewhere (ENQ001) and missing consent', async () => {
@@ -71,7 +72,7 @@ test('P&O and Allianz bots on their practice portals', { skip: !hasPlaywright &&
     await t.test('Takaful Ikhlas: price from Ikhlas slip, add-ons, range retry, NCD 001, blank answers use agency defaults', async () => {
       const x = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', windscreenSI: 1500, addons: { windscreen: true, specialPerils: true } } }, 'mock-ikhlas');
       assert.equal(x.status, 'quoted', JSON.stringify(x.reasons));
-      assert.deepEqual(x.addons.map((a) => a.label), ['Windscreen', 'Special Perils']);
+      assert.deepEqual(x.addons.map((a) => a.label), ['Windscreen', 'Special Perils', 'All Drivers'] /* All Drivers: agency rule */);
       assert.ok(!x.notes.some((n) => /requested but is not/.test(n)));
       assert.match(x.insurerRef, /^TQ\d+/);
       const r = await quote(port, { owner, vehicle: { regNo: 'VBK 2281' }, cover: { coverType: 'comprehensive', ncd: '', sumInsured: 500000, addons: {} } }, 'mock-ikhlas');
