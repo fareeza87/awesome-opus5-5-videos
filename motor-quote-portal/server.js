@@ -141,9 +141,30 @@ function fillDefaults(body) {
   return used;
 }
 
+// Agency rule for e-hailing requests: annual → Allianz and Generali only;
+// daily → Allianz only (EHAILING_ANNUAL / EHAILING_DAILY to change). Practice
+// and demo insurers are left alone. A listed insurer without a bot is shown
+// as "quote by hand" rather than left out silently.
+function ehailingRoute(body, providers) {
+  const c = body.cover || {};
+  if (!c.addons?.ehailing) return providers;
+  const daily = c.ehailingPeriod === 'daily';
+  const want = String(daily ? process.env.EHAILING_DAILY || 'allianz' : process.env.EHAILING_ANNUAL || 'allianz,generali').split(',').map((x) => x.trim()).filter(Boolean);
+  const isPanel = (p) => PANEL.some((x) => x.id === p.id);
+  const kept = providers.filter((p) => !isPanel(p) || want.includes(p.id));
+  for (const id of want) {
+    if (kept.some((p) => p.id === id)) continue;
+    const panel = PANEL.find((x) => x.id === id);
+    if (panel) kept.push({ ...panel, mode: 'manual', reason: BOTS_BUILT.includes(id) ? `${panel.name} is switched off in Settings` : `No bot for ${panel.name} yet: quote ${daily ? 'daily' : 'annual'} e-hailing by hand${panel.ehailing?.fixed ? ` (fixed RM${panel.ehailing.fixed.toLocaleString()})` : ''}` });
+  }
+  return kept;
+}
+const BOTS_BUILT = ['allianz', 'po', 'ikhlas'];
+
 async function runQuote(body, staff, onEvent) {
   const defaultsUsed = fillDefaults(body);
-  const providers = currentProviders();
+  let providers = ehailingRoute(body, currentProviders());
+
   if (!providers.length) {
     const errors = ['No insurer is switched on. Open ⚙︎ Settings, save the insurer login and tick "Quote this insurer".'];
     onEvent?.({ type: 'error', errors });

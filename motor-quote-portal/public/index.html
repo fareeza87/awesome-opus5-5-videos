@@ -20,15 +20,15 @@
 <main>
   <section id="tab-quote" class="layout">
     <form id="quote-form" class="card no-print" autocomplete="off">
-      <label class="snap" id="snapBtn">
-        <input type="file" id="docFile" accept="image/*,application/pdf" capture="environment">
-        <span>📷 Car grant / old policy</span><small class="muted" id="docMsg">Snap the geran or last year's policy to fill the form</small>
-      </label>
-      <details class="paste" id="pasteBox">
-        <summary>Paste WhatsApp message</summary>
-        <textarea id="pasteText" rows="5" placeholder="Paste the customer's message: plate, IC, name, phone, address, add-ons…"></textarea>
-        <div class="actions"><button type="button" id="pasteGo" class="primary">Fill form</button><span class="muted small" id="pasteMsg"></span></div>
-      </details>
+      <!-- One place for everything the customer sends: grant/policy photo or PDF, or their WhatsApp text. -->
+      <div class="intake" id="intake">
+        <label class="snap" id="snapBtn">
+          <input type="file" id="docFile" accept="image/*,application/pdf">
+          <span>📎 Grant · old policy · WhatsApp</span><small class="muted">Tap to snap or choose the geran / last policy, or paste the customer's message below. You can also drop a file here.</small>
+        </label>
+        <textarea id="pasteText" rows="3" placeholder="Paste the customer's WhatsApp message here: it fills the form by itself"></textarea>
+        <small class="muted" id="docMsg" aria-live="polite"></small>
+      </div>
       <h2>Customer &amp; vehicle</h2>
       <div class="grid">
         <label>ID type
@@ -64,7 +64,7 @@
       <div class="grid" id="ehWrap" hidden>
         <label>E-hailing period
           <select name="ehailingPeriod" id="ehailingPeriod">
-            <option value="annual">Annual</option><option value="6m">6 months</option>
+            <option value="annual">Annual</option><option value="daily">Daily</option><option value="6m">6 months</option>
             <option value="3m">3 months</option><option value="1m">1 month</option>
           </select>
         </label>

@@ -263,6 +263,8 @@ export default {
     if (mobile.length < 8) return { status: 'declined', reasons: ["Allianz needs the customer's mobile number"] };
     if (!/@/.test(email)) return { status: 'declined', reasons: ["Allianz needs an email (customer's, or set ALLIANZ_FALLBACK_EMAIL to the agency's)"] };
     if (!owner.address) return { status: 'declined', reasons: ["Allianz needs the customer's address"] };
+    // Daily e-hailing is a different Allianz product, not yet taught to the bot.
+    if (cover.addons?.ehailing && cover.ehailingPeriod === 'daily') return { status: 'declined', manual: true, reasons: ['Allianz daily e-hailing: not in the bot yet, quote by hand (annual e-hailing works)'] };
 
     const plate = vehicle.regNo.replace(/\s+/g, '').toUpperCase();
     const notes = [];

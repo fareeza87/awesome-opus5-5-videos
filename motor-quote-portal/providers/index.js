@@ -65,6 +65,7 @@ export async function quoteOne(provider, req) {
   if (closed) return { status: 'declined', closed: true, reasons: [closed] };
   switch (provider.mode) {
     case 'demo': return rateQuote(req, provider);
+    case 'manual': return { status: 'declined', manual: true, reasons: [provider.reason || `Quote ${provider.name} by hand`] };
     case 'rpa': return quoteViaRpa(provider, req);
     case 'webhook': return quoteViaWebhook(provider, req);
     case 'api': return quoteViaApi(provider, req);

@@ -35,3 +35,18 @@ test('flags a requested add-on missing from the insurer slip', () => {
   const notes = auditAddons({ addons: { windscreen: true, specialPerils: true } }, { addons: [{ label: 'Windscreen Or Windows', amount: 450 }] });
   assert.deepEqual(notes, ["Special perils was requested but is not on the insurer's quotation"]);
 });
+
+test('real customer messages: company template, unlabelled lines, daily e-hailing', () => {
+  const company = parseCustomerMessage('*(For Company)*\n\n*Company Name & SSM No.:* 202101014964 Artami Consultant Sdn Bhd\n*Vehicle Type:* Private Car\n*Vehicle Plate Number:* SMN9312\n*Contact Number:* 0122051293\n*Postcode:* 40170');
+  assert.deepEqual(company.owner, { idType: 'company', nric: '202101014964', name: 'ARTAMI CONSULTANT SDN BHD', phone: '0122051293', postcode: '40170' });
+  assert.equal(company.vehicle.regNo, 'SMN 9312');
+  const plain = parseCustomerMessage('VJX6130\n750722085441\nmohamed nazimuddin bin mohd azad din\nacefleet@gmail.com\n0129276059\nyes used for e-hailing\nanunual insurance\nno 5 lorong aminuddin baki 4\ntaman tun dr ismail\n60000 kuala lumpur\nadd on - windscreen');
+  assert.equal(plain.owner.nric, '750722-08-5441');
+  assert.equal(plain.owner.name, 'MOHAMED NAZIMUDDIN BIN MOHD AZAD DIN');
+  assert.equal(plain.owner.address, 'no 5 lorong aminuddin baki 4, taman tun dr ismail, 60000 kuala lumpur');
+  assert.equal(plain.owner.postcode, '60000');
+  assert.deepEqual(plain.cover.addons, { ehailing: true, windscreen: true });
+  const daily = parseCustomerMessage('VPY9305\n850412-08-5698\n32200\ndaily e-hailing');
+  assert.equal(daily.owner.postcode, '32200');
+  assert.equal(daily.cover.ehailingPeriod, 'daily');
+});

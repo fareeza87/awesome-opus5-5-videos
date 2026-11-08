@@ -297,9 +297,14 @@ export default {
 
     // Additional coverage (same Financial-Link fields as Etiqa: WSC windscreen, EP057 special perils).
     const tick = async (sel, on) => { const c = ext.locator(sel).first(); if (await c.count()) { if (on) await c.check(); else await c.uncheck(); } };
+    if (process.env.RPA_DEBUG === '1') console.log('[ikhlas] extra benefits', JSON.stringify(await ext.evaluate(() => [...document.querySelectorAll('input[type=checkbox]')].map((c) => `${c.name}=${c.value}${c.checked ? ' [x]' : ''} :: ${(c.closest('tr')?.innerText || '').replace(/\s+/g, ' ').slice(0, 60)}`))));
+    if (process.env.RPA_STOP_AT === 'ikhlas-extra') throw new Error('stopped at extra benefits');
     await tick("input[name='cew'][value^='WSC|']", !!cover.addons?.windscreen);
     if (cover.addons?.windscreen) await ext.locator("input[name^='SIWSC']").first().fill(String(Math.round(cover.windscreenSI || 1000))).catch(() => {});
-    await tick("input[name='cew'][value^='EP057|']", !!cover.addons?.specialPerils);
+    // Special perils: FLD|57 on the live portal (EP057 on Etiqa-style pages).
+    await tick("input[name='cew'][value^='FLD|'], input[name='cew'][value^='EP057|']", !!cover.addons?.specialPerils);
+    // Strike, riot & civil commotion comes pre-ticked: agency rule is off unless asked for.
+    await tick("input[name='cew'][value^='SRCC|']", !!cover.addons?.srcc);
     await ext.locator('#genQuotation').click();
 
     // Ikhlas's own slip: find it, print it to PDF, read it.

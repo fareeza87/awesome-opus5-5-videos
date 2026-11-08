@@ -45,7 +45,7 @@ pick.addEventListener('change', () => {
 });
 
 // Agency rule: every quote has all drivers / waiver of compulsory excess unless staff untick it.
-const DEFAULT_ON = ['windscreen', 'specialPerils', 'srcc', 'llop', 'allDrivers', 'waiverExcess'];
+const DEFAULT_ON = ['windscreen', 'specialPerils', 'llop', 'allDrivers', 'waiverExcess']; // no strike & riot (agency rule)
 for (const [key, a] of Object.entries(ADDONS)) {
   $('#addons').insertAdjacentHTML('beforeend',
     `<label class="chip"><input type="checkbox" name="addon" value="${key}" ${DEFAULT_ON.includes(key) ? 'checked' : ''}><span>${esc(a.label)}</span></label>`);
@@ -534,28 +534,47 @@ function fillFromParsed(r) {
     : 'Nothing recognised.';
 }
 
-$('#pasteGo').addEventListener('click', () => {
-  $('#pasteMsg').textContent = fillFromParsed(parseCustomerMessage($('#pasteText').value));
-});
+// ---------- One intake box: grant / policy (photo or PDF) or WhatsApp text ----------
+const intakeMsg = (t) => { $('#docMsg').textContent = t; };
+let pasteTimer;
+const readText = (text) => {
+  if (!text.trim()) return;
+  const filled = fillFromParsed(parseCustomerMessage(text));
+  intakeMsg(`WhatsApp message: ${filled}`);
+};
+$('#pasteText').addEventListener('input', () => { clearTimeout(pasteTimer); pasteTimer = setTimeout(() => readText($('#pasteText').value), 400); });
 
-$('#docFile').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
+async function readFileIn(file) {
   if (!file) return;
-  const msg = $('#docMsg');
-  msg.textContent = 'Reading…';
+  if (/^text\//.test(file.type)) { $('#pasteText').value = await file.text(); readText($('#pasteText').value); return; }
+  intakeMsg('Reading the document… (a photo takes a few seconds)');
   try {
-    const r = await fetch('api/documents', { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name) }, body: file });
+    const r = await fetch('api/documents', { method: 'POST', headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': encodeURIComponent(file.name || 'pasted-image.png') }, body: file });
     if (r.status === 401) { location.href = 'login'; return; }
     if (!r.ok) throw new Error(r.status === 404 ? 'Reading documents needs the portal server' : `Server error ${r.status}`);
     const d = await r.json();
-    if (d.error) { msg.textContent = d.error; return; }
+    if (d.error) { intakeMsg(d.error); return; }
     const filled = fillFromParsed({ ...d.fields, found: d.found });
     const ncd = d.fields.cover?.lastNcd !== undefined ? ` Last policy NCD: ${d.fields.cover.lastNcd}% (renewal NCD is checked by each insurer).` : '';
-    msg.textContent = `${d.docType === 'grant' ? 'Car grant' : 'Policy'}: ${filled}${ncd}${d.checks?.length ? ' ' + d.checks.join(' ') : ''}`;
-  } catch (err) {
-    msg.textContent = err.message;
-  }
+    intakeMsg(`${d.docType === 'grant' ? 'Car grant' : 'Policy'}: ${filled}${ncd}${d.checks?.length ? ' ' + d.checks.join(' ') : ''}`);
+  } catch (err) { intakeMsg(err.message); }
+}
+$('#docFile').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; readFileIn(f); });
+
+// Drop a file or text anywhere on the form; paste a screenshot or photo too.
+const intakeBox = $('#intake');
+['dragenter', 'dragover'].forEach((ev) => form.addEventListener(ev, (e) => { e.preventDefault(); intakeBox.classList.add('drag'); }));
+['dragleave', 'drop'].forEach((ev) => form.addEventListener(ev, () => intakeBox.classList.remove('drag')));
+form.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const f = e.dataTransfer.files?.[0];
+  if (f) return readFileIn(f);
+  const t = e.dataTransfer.getData('text');
+  if (t) { $('#pasteText').value = t; readText(t); }
+});
+document.addEventListener('paste', (e) => {
+  const img = [...(e.clipboardData?.items || [])].find((i) => i.kind === 'file');
+  if (img) { e.preventDefault(); readFileIn(img.getAsFile()); }
 });
 
 // ---------- Payment links ----------

@@ -2,7 +2,9 @@
 // quote form. Ported from the agency's parse_customer_message. Anything not
 // in the message is left empty for staff to fill: nothing is made up.
 export function parseCustomerMessage(raw) {
-  const text = String(raw || '').trim();
+  // WhatsApp bold/italic marks (*Postcode:* 40170) would hide the labels.
+  const text = String(raw || '').replace(/[*_~]/g, '').trim();
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
   const out = { owner: {}, vehicle: {}, cover: { addons: {} }, found: [] };
   const set = (obj, key, val, label) => { if (val !== undefined && val !== '') { obj[key] = val; out.found.push(label); } };
 
@@ -13,13 +15,17 @@ export function parseCustomerMessage(raw) {
 
   // ID: passport, company registration, or NRIC.
   const passport = /(?:passport|pasport)(?:\s*no\.?)?[:\s]*([A-Z]\d{7,9})\b/i.exec(text);
-  const brnNew = /\b(20\d{10})\b/.exec(text);
+  // New SSM number: 20YY + 2-digit entity code (01–06) + 6 digits.
+  const brnNew = /\b(20\d{2}0[1-6]\d{6})\b/.exec(text);
   const brnOld = /\b(\d{5,7}-[A-Z]|[A-Z]{2}\d{5,7}-[A-Z])\b/.exec(text);
-  const nric = /(?:nric|ic\s*no\.?|no\.?\s*ic|id\s*no\.?|\bic\b)[:\s]*(\d{6}-?\d{2}-?\d{4})/i.exec(text) || /\b(\d{6}-\d{2}-\d{4})\b/.exec(text);
+  // A bare 12-digit number is an NRIC only if it starts with a real date (YYMMDD).
+  const realDate = (d) => { const m = +d.slice(2, 4), day = +d.slice(4, 6); return m >= 1 && m <= 12 && day >= 1 && day <= 31; };
+  const bare = [...text.matchAll(/(?<![\d-])(\d{12})(?![\d-])/g)].map((m) => m[1]).find((d) => realDate(d) && !(brnNew && d === brnNew[1] && /ssm|company|syarikat|sdn|bhd/i.test(text)));
+  const nric = /(?:nric|ic\s*no\.?|no\.?\s*ic|id\s*no\.?|\bic\b)[:\s]*(\d{6}-?\d{2}-?\d{4})/i.exec(text) || /\b(\d{6}-\d{2}-\d{4})\b/.exec(text) || (bare ? [bare, bare] : null);
   if (passport) {
     set(out.owner, 'idType', 'passport', 'ID type');
     set(out.owner, 'nric', passport[1].toUpperCase(), 'passport no.');
-  } else if (brnNew || brnOld || (/\b(sdn\.?\s*bhd|bhd|enterprise|trading|plt)\b/i.test(text) && !nric)) {
+  } else if ((brnNew || brnOld) && (/ssm|company|syarikat|sdn\.?\s*bhd|\bbhd\b|enterprise|trading|plt/i.test(text) || !nric) || (/\b(sdn\.?\s*bhd|bhd|enterprise|trading|plt)\b/i.test(text) && !nric)) {
     set(out.owner, 'idType', 'company', 'ID type');
     set(out.owner, 'nric', brnNew?.[1] || brnOld?.[1], 'company reg. no.');
     if (brnNew && brnOld) out.owner.oldBrn = brnOld[1];
@@ -29,7 +35,13 @@ export function parseCustomerMessage(raw) {
     set(out.owner, 'nric', `${d.slice(0, 6)}-${d.slice(6, 8)}-${d.slice(8)}`, 'NRIC');
   }
 
-  const name = /(?:full\s*name|nama(?:\s*penuh)?|name|proposer)[:\s]+([A-Za-z@'./\s]{3,60}?)\s*(?:\n|$|email|contact|nric|passport|ssm|ic\b)/i.exec(text)?.[1];
+  let name = /(?:full\s*name|nama(?:\s*penuh)?|(?<!company\s)name|proposer)[:\s]+([A-Za-z@'./\s]{3,60}?)\s*(?:\n|$|email|contact|nric|passport|ssm|ic\b)/i.exec(text)?.[1];
+  // Company template: "Company Name & SSM No.: 202101014964 Artami Consultant Sdn Bhd".
+  const company = /company\s*name[^:\n]*:\s*([^\n]+)/i.exec(text)?.[1]?.replace(/\b\d{5,12}(-[A-Z])?\b/g, '').replace(/\s{2,}/g, ' ').trim();
+  if (company) name = company;
+  // Unlabelled: a line that is just a person's name (2–7 words, letters only, not an address or a yes/no answer).
+  if (!name) name = lines.find((l) => /^[A-Za-z@'.\/ ]{5,60}$/.test(l) && l.trim().split(/\s+/).length >= 2 && l.trim().split(/\s+/).length <= 7
+    && !/\b(jalan|jln|lorong|lrg|taman|tmn|kampung|kg|lot|blok|block|no|yes|ya|tak|tidak|insurance|insurans|annual|tahunan|daily|e-?hailing|add\s*on|private|car|kereta|hi|hello|salam|team|quotation)\b/i.test(l));
   if (name && !/email/i.test(name)) set(out.owner, 'name', name.trim().toUpperCase(), 'name');
 
   const email = /([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9.-]+)/.exec(text)?.[1];
@@ -46,14 +58,24 @@ export function parseCustomerMessage(raw) {
     address = am[1].trim();
     if (am[2] && !/\b\d{5}\b/.test(address) && /\b\d{5}\b/.test(am[2]) && !/[a-z ]{2,20}:/i.test(am[2])) address += ', ' + am[2].trim();
   }
+  // Unlabelled address: lines that look like one ("no 5 lorong …", "taman …", "60000 kuala lumpur").
+  if (!address) {
+    const addrLines = lines.filter((l) => /^(no\.?\s*\d|lot\s|\d+[a-z]?,)|\b(jalan|jln|lorong|lrg|taman|tmn|kampung|kg\.?|blok|block|persiaran|lebuh|apartment|kondo|condo|pangsapuri)\b/i.test(l) || /^\d{5}\s+[a-z]/i.test(l));
+    if (addrLines.length) address = addrLines.join(', ');
+  }
   if (address) set(out.owner, 'address', address.replace(/\s*\n\s*/g, ', ').trim(), 'address');
-  const postcode = /\b(\d{5})\b/.exec(address || '')?.[1] || /(?:postcode|poskod)[:\s]*(\d{5})/i.exec(text)?.[1];
+  const postcode = /\b(\d{5})\b/.exec(address || '')?.[1] || /(?:postcode|poskod)[:\s]*(\d{5})/i.exec(text)?.[1]
+    || lines.find((l) => /^\d{5}$/.test(l)); // a postcode on its own line
   if (postcode) set(out.owner, 'postcode', postcode, 'postcode');
 
   // E-hailing: "e-hailing: no" or "daily" means no annual cover.
   if (/e[\s-]?hailing|private\s*hire|grab\b/i.test(text)) {
     const no = /e[\s-]?hailing\s*[:\-]?\s*(no|tidak|x)\b/i.test(text);
-    if (!no && !/daily|harian/i.test(text)) { out.cover.addons.ehailing = true; out.cover.ehailingPeriod = 'annual'; out.found.push('e-hailing'); }
+    if (!no) {
+      out.cover.addons.ehailing = true;
+      out.cover.ehailingPeriod = /daily|harian|per\s*day/i.test(text) ? 'daily' : 'annual';
+      out.found.push(`e-hailing (${out.cover.ehailingPeriod})`);
+    }
   }
   if (/wind\s*screen|cermin/i.test(text) && !/wind\s*screen\s*[:\-]?\s*(no|tidak)\b/i.test(text)) {
     out.cover.addons.windscreen = true; out.found.push('windscreen');
