@@ -39,7 +39,22 @@ async function ev(page, fn, arg) {
 const bodyText = (page) => ev(page, () => document.body.innerText || '');
 
 // Same pop-up handling as the original script.
-function dismissDialogs(page, code = '') {
+// Pop-ups whose buttons need a real click (a script click is ignored).
+const POPUP_ANSWERS = [
+  [/existing quotation/i, /^\s*NO\s*$/i, 'existing'], // make a fresh quotation, not the old one
+  [/agent.s email/i, /^\s*YES\s*$/i, 'agent-email'], // agency email used when the customer gave none
+];
+async function dismissDialogs(page, code = '') {
+  for (const [text, button, tag] of POPUP_ANSWERS) {
+    const pane = page.locator('.cdk-overlay-pane', { hasText: text }).last();
+    if (!(await pane.count().catch(() => 0))) continue;
+    await pane.locator('button', { hasText: button }).first().click({ timeout: 4000 }).catch(() => {});
+    await page.waitForTimeout(700);
+    return tag;
+  }
+  return scriptDismiss(page, code);
+}
+function scriptDismiss(page, code = '') {
   return ev(page, (code) => {
     const modals = [...document.querySelectorAll('.cdk-overlay-pane, nx-modal-container, [role="dialog"], .modal')];
     const btn = (m, ...labels) => [...m.querySelectorAll('button, a, [role="button"]')].find((b) => labels.includes((b.textContent || '').trim().toUpperCase()));
@@ -263,8 +278,9 @@ export default {
     if (mobile.length < 8) return { status: 'declined', reasons: ["Allianz needs the customer's mobile number"] };
     if (!/@/.test(email)) return { status: 'declined', reasons: ["Allianz needs an email (customer's, or set ALLIANZ_FALLBACK_EMAIL to the agency's)"] };
     if (!owner.address) return { status: 'declined', reasons: ["Allianz needs the customer's address"] };
-    // Daily e-hailing is a different Allianz product, not yet taught to the bot.
-    if (cover.addons?.ehailing && cover.ehailingPeriod === 'daily') return { status: 'declined', manual: true, reasons: ['Allianz daily e-hailing: not in the bot yet, quote by hand (annual e-hailing works)'] };
+    // "Daily e-hailing" (agency term) on Allianz = regular cover, no Private Hire
+    // Car, with the waiver of compulsory excess (RM20).
+    const dailyEh = !!(cover.addons?.ehailing && cover.ehailingPeriod === 'daily');
 
     const plate = vehicle.regNo.replace(/\s+/g, '').toUpperCase();
     const notes = [];
@@ -299,6 +315,8 @@ export default {
     const vehInput = page.locator("input[type='text']:visible, input:not([type]):visible").first();
     await typeInto(vehInput, plate);
     step('plate typed');
+    // "Existing quotation for this vehicle?" can pop up here: answer it before going on.
+    for (let i = 0; i < 4; i++) { await sleep(page, 500); if (await dismissDialogs(page)) { step('popup answered after plate'); break; } }
     // Agency rule: a company number that is all digits is the new SSM format.
     const idType = owner.idType === 'passport' ? 'PASSPORT' : owner.idType === 'company' ? (/^\d+$/.test(id) ? 'NEW BUSINESS' : 'BUSINESS') : 'NRIC';
     // ID Type appears a moment after the plate is entered.
@@ -307,9 +325,12 @@ export default {
     if (await page.locator('nx-dropdown[formcontrolname="idType"]').count()) await pickDropdown(page, 'idType', idType);
     await typeInto(page.locator("input[type='text']:visible, input:not([type]):visible").nth(1), id);
 
+    await sleep(page, 600);
+    if (await dismissDialogs(page)) step('popup answered after ID');
     step('id typed');
     // Product: Allianz fills it from JPJ/ISM for most cars; for some (e.g. company cars) it stays blank.
-    await sleep(page, 2500);
+    // The car lookup can also bring up "existing quotation?": answer it while waiting.
+    for (let i = 0; i < 8; i++) { await sleep(page, 500); if (await dismissDialogs(page)) step('popup answered after lookup'); }
     const prodBox = page.locator('nx-formfield', { hasText: /Product Name/i }).locator('nx-dropdown').first();
     const prodCtl = (await prodBox.count()) ? await prodBox.getAttribute('formcontrolname') : null;
     if (prodCtl && !(await prodBox.locator('.nx-dropdown__rendered').innerText().catch(() => '')).trim()) {
@@ -434,7 +455,7 @@ export default {
     };
     // Allianz has no "all drivers" cover: the agency rule asks for the waiver instead.
     // Company-registered cars come with All Drivers built in and have no waiver box.
-    const wantWaiver = !!(cover.addons?.waiverExcess || cover.addons?.allDrivers);
+    const wantWaiver = !!(cover.addons?.waiverExcess || cover.addons?.allDrivers || dailyEh);
     const hasWaiverBox = (await page.locator('nx-checkbox', { hasText: /WAIVER OF COMPULSORY EXCESS/i }).count()) > 0 || !liveLayout;
     if (hasWaiverBox) {
       if (!(await tick(/WAIVER OF COMPULSORY EXCESS/i, wantWaiver)) && wantWaiver) notes.push('Allianz: could not tick Waiver of Compulsory Excess');
@@ -462,7 +483,13 @@ export default {
       }
     }
     if (cover.addons?.specialPerils && !(await tick(/SPECIAL PERILS/i, true))) notes.push('Allianz: could not tick Special Perils');
-    if (cover.addons?.ehailing) {
+    // Allianz remembers extras from an earlier quote of the same car: take Private Hire off when not wanted.
+    if (!(cover.addons?.ehailing && !dailyEh) && (await page.locator('nx-checkbox', { hasText: /PRIVATE HIRE/i }).count())) {
+      if (await tick(/PRIVATE HIRE/i, false)) step('private hire unticked (left from an earlier quote)');
+      else notes.push('Allianz: Private Hire Car is on from an earlier quote and could not be removed: check');
+      await sleep(page, 800);
+    }
+    if (cover.addons?.ehailing && !dailyEh) {
       // Add More → "Extra Cover" pop-up (5 per page): show 50, tick
       // PRIVATE HIRE CAR ENDORSEMENT, Proceed. Practice page: plain table.
       const live = page.getByText(/^\s*ADD MORE\s*$/i).last();
@@ -573,7 +600,8 @@ export default {
       coverType,
       // Allianz has no all-drivers cover; the waiver stands in for it (noted above).
       notes: [...notes, ...(figures.source === 'summary page' ? [] : slip.checks.map((c) => `Check slip: ${c}`)), ...slip.notes,
-        ...auditAddons(cover, slip).filter((n) => !(/all drivers/i.test(n) && (figures.addons || []).some((a) => /waiver/i.test(a.label))))],
+        ...(dailyEh ? ['Daily e-hailing: regular cover with waiver of compulsory excess (no Private Hire Car)'] : []),
+        ...auditAddons(cover, slip).filter((n) => !(/all drivers/i.test(n) && (figures.addons || []).some((a) => /waiver/i.test(a.label))) && !(dailyEh && /e-hailing/i.test(n)))],
       slipFile: file,
       benefits: ['Official Allianz e-Quotation saved'],
     };
