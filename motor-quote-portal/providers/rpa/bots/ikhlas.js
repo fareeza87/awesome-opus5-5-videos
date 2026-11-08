@@ -109,6 +109,17 @@ export default {
       if (old) await fill(f, 'bizregno', old);
       await f.locator("select[name='bizCategory']").first().selectOption('C').catch(() => {});
       await f.evaluate(() => { if (typeof BusinessDefaultValue === 'function') BusinessDefaultValue(); });
+      // Companies need a TIN: let the portal look it up (Search TIN) unless given.
+      const tinBox = f.locator("input[name='tinno'], input[name='tinNo'], input[name='tin']").first();
+      if (owner.tin && (await tinBox.count())) await tinBox.fill(owner.tin).catch(() => {});
+      const tinBtn = f.locator("input[value='Search TIN' i], button:has-text('Search TIN')").first();
+      if (!owner.tin && (await tinBtn.count())) {
+        const before = page.context().pages().length;
+        await tinBtn.click().catch(() => {});
+        await page.waitForTimeout(3000);
+        if (process.env.RPA_DEBUG === '1') console.log('[ikhlas] TIN after search:', await tinBox.inputValue().catch(() => '?'), 'popups', page.context().pages().length - before, 'alerts', page.__ikDialogs?.slice(-2));
+        if (!(await tinBox.inputValue().catch(() => ''))) notes.push('Ikhlas: company TIN not found by Search TIN');
+      }
     } else {
       const d = id.replace(/\D/g, '');
       if (owner.idType === 'nric' && d.length === 12) {

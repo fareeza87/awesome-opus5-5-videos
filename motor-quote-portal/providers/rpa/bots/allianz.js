@@ -192,6 +192,7 @@ async function pickDropdown(page, control, match, filterText) {
     if (await f.count()) { await f.fill(filterText); await sleep(page, 400); }
   }
   const item = page.locator('.cdk-overlay-pane nx-dropdown-item', { hasText: match }).first();
+  step('dropdown', control, 'options', JSON.stringify(await page.locator('.cdk-overlay-pane nx-dropdown-item').allInnerTexts().catch(() => [])).slice(0, 600));
   if (await item.count()) await item.click();
   else await ev(page, () => document.querySelectorAll('.cdk-overlay-backdrop').forEach((b) => b.click()));
   return page.locator(`nx-dropdown[formcontrolname="${control}"]`).innerText();
@@ -296,10 +297,22 @@ export default {
     await typeInto(vehInput, plate);
     step('plate typed');
     const idType = owner.idType === 'passport' ? 'PASSPORT' : owner.idType === 'company' ? (id.length === 12 ? 'NEW BUSINESS' : 'BUSINESS') : 'NRIC';
+    // ID Type appears a moment after the plate is entered.
+    for (let i = 0; i < 10 && (await page.locator('nx-dropdown').count()) < 2; i++) await sleep(page, 500);
+    step('page 1 dropdowns', JSON.stringify(await page.locator('nx-dropdown, select').evaluateAll((ds) => ds.map((d) => [d.tagName, d.getAttribute('formcontrolname'), d.getAttribute('ng-reflect-name'), d.innerText.trim().slice(0, 40)]))));
     if (await page.locator('nx-dropdown[formcontrolname="idType"]').count()) await pickDropdown(page, 'idType', idType);
     await typeInto(page.locator("input[type='text']:visible, input:not([type]):visible").nth(1), id);
 
     step('id typed');
+    // Product: Allianz fills it from JPJ/ISM for most cars; for some (e.g. company cars) it stays blank.
+    await sleep(page, 2500);
+    const prodBox = page.locator('nx-formfield', { hasText: /Product Name/i }).locator('nx-dropdown').first();
+    const prodCtl = (await prodBox.count()) ? await prodBox.getAttribute('formcontrolname') : null;
+    if (prodCtl && !(await prodBox.locator('.nx-dropdown__rendered').innerText().catch(() => '')).trim()) {
+      const got = await pickDropdown(page, prodCtl, owner.idType === 'company' ? /COMPANY REGISTERED/i : /PRIVATE CARS? EXCLUDING GOODS/i);
+      step('product picked', prodCtl, got);
+      for (let i = 0; i < 6; i++) await sleep(page, 400);
+    }
     // Wait for JPJ/ISM, then NEXT, until the customer page shows.
     const onPage2 = async () => /CUSTOMER INFORMATION|MOBILE NO/i.test(await bodyText(page));
     let moved = false;

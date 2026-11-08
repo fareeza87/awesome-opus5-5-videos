@@ -16,8 +16,13 @@ export function auditAddons(cover, slip) {
   const labels = (slip.addons || []).map((a) => a.label);
   const combinedOnly = labels.length === 1 && labels[0] === 'Extra coverage'; // names not readable on this slip
   if (combinedOnly) return notes;
+  const has = (key) => labels.some((l) => KINDS.find(([k]) => k === key)[1].test(l));
+  // Agency rule: all drivers OR waiver of compulsory excess; either one covers both requests.
+  const driversCovered = has('allDrivers') || has('waiverExcess');
   for (const [key, re, name] of KINDS) {
-    if (cover.addons?.[key] && !labels.some((l) => re.test(l))) notes.push(`${name} was requested but is not on the insurer's quotation`);
+    if (!cover.addons?.[key] || labels.some((l) => re.test(l))) continue;
+    if ((key === 'allDrivers' || key === 'waiverExcess') && driversCovered) continue;
+    notes.push(`${name} was requested but is not on the insurer's quotation`);
   }
   return notes;
 }
