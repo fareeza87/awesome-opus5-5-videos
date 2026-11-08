@@ -4,3 +4,4 @@ data/vault.json
 data/.vault-key
 node_modules/
 .env
+data/slips/
