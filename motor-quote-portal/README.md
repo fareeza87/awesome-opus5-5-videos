@@ -125,6 +125,10 @@ Each offer has a **💳 Payment link** button. It makes a Fiuu payment link for 
 
 Settings: `FIUU_MERCHANT_ID`, `FIUU_VERIFY_KEY` (Fiuu portal → Merchant Profile). For testing, set `FIUU_PAY_URL=https://sandbox-payment.fiuu.com/RMS/pay/` with sandbox details.
 
+### Atome payment links
+
+**Atome 3x link** on an offer runs a bot on the Atome Merchant Center: it logs in once and keeps the session, opens Create Payment Link, picks your outlet (`ATOME_OUTLET`, default "MetaFin"), enters the amount and order ID, and reads back the link Atome shows **for that order**. It takes about 1–3 seconds. Ported from the agency's script, with fixes: an unreadable amount is an error (it was replaced with RM2,698.81), a missing link is an error (it returned the portal page as the "link"), it never takes another order's link from the list, and an unknown outlet is an error (it picked the first outlet). Settings: `ATOME_PORTAL_USER`, `ATOME_PORTAL_PASS`.
+
 ### Snap a car grant or old policy
 
 On the quote form, **📷 Car grant / old policy** opens the phone camera, or takes a PDF. It reads the plate, owner name, IC / company number, address and postcode, make and model, cc, year, chassis and engine number. From an old policy it also reads the sum insured and last year's NCD. Photos are read by OCR **on the portal computer itself** (tesseract.js, offline), so customer documents never leave the office. OCR can mix up look-alike characters (S/5, 1/I), so the portal reminds staff to check the plate, IC and numbers. Ported from the agency's `match_grant_or_policy`, with fixes: the insurer's own registration number is no longer taken as the customer's ID, the SST number is no longer read as a plate, and the plate is no longer read as the sum insured.

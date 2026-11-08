@@ -25,6 +25,7 @@ import { parseSlipPdf } from './slips/parse.js';
 import { comparisonFromSlips } from './slips/compare.js';
 import { readDocument, closeOcr } from './slips/grant.js';
 import { fiuuPayLink, fiuuConfigured } from './payments/fiuu.js';
+import { atomePayLink, atomeConfigured } from './payments/atome.js';
 
 // Printed on every quotation. Change to your agency's details.
 const AGENCY = {
@@ -146,8 +147,10 @@ const server = http.createServer(async (req, res) => {
       }
     }
     // Payment link for the offer the customer chose; saved with the quote.
-    if (url.pathname === '/api/payments/fiuu' && req.method === 'POST') {
-      if (!fiuuConfigured()) return send(res, 400, { error: 'Fiuu not set up: add FIUU_MERCHANT_ID and FIUU_VERIFY_KEY to .env' });
+    const payWith = /^\/api\/payments\/(fiuu|atome)$/.exec(url.pathname)?.[1];
+    if (payWith && req.method === 'POST') {
+      if (payWith === 'fiuu' && !fiuuConfigured()) return send(res, 400, { error: 'Fiuu not set up: add FIUU_MERCHANT_ID and FIUU_VERIFY_KEY to .env' });
+      if (payWith === 'atome' && !atomeConfigured()) return send(res, 400, { error: 'Atome not set up: add ATOME_PORTAL_USER and ATOME_PORTAL_PASS to .env' });
       const { quoteId, providerId } = await readJson(req);
       const rows = await loadDb();
       const row = rows.find((r) => r.id === quoteId);
@@ -158,16 +161,17 @@ const server = http.createServer(async (req, res) => {
       const orderId = `${plate}_${now}`.slice(0, 32);
       const { owner } = row.request;
       try {
-        const link = fiuuPayLink({ orderId, amount: offer.total, name: owner.name, email: owner.email, mobile: owner.phone,
-          description: `Car insurance ${plate} - ${offer.provider}` });
-        const pay = { provider: 'Fiuu', insurer: offer.provider, amount: offer.total, orderId, link, createdAt: new Date().toISOString() };
+        const link = payWith === 'fiuu'
+          ? fiuuPayLink({ orderId, amount: offer.total, name: owner.name, email: owner.email, mobile: owner.phone, description: `Car insurance ${plate} - ${offer.provider}` })
+          : (await atomePayLink({ plate, amount: offer.total, orderId })).link;
+        const pay = { provider: payWith === 'fiuu' ? 'Fiuu' : 'Atome', insurer: offer.provider, amount: offer.total, orderId, link, createdAt: new Date().toISOString() };
         row.payments = [pay, ...(row.payments || [])];
         writing = writing.then(() => writeFile(DB, JSON.stringify(rows.slice(0, 2000), null, 1)));
         await writing;
         return send(res, 200, pay);
       } catch (e) { return send(res, 400, { error: e.message }); }
     }
-    if (url.pathname === '/api/config') return send(res, 200, { fiuu: fiuuConfigured() });
+    if (url.pathname === '/api/config') return send(res, 200, { fiuu: fiuuConfigured(), atome: atomeConfigured() });
     // Car grant (geran) or old policy: photo or PDF → form fields.
     if (url.pathname === '/api/documents' && req.method === 'POST') {
       const bytes = await readBytes(req);

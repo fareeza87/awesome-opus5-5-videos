@@ -13,6 +13,7 @@ import { demoLookup } from '../public/engine/lookup.js';
 import { handlePoPortal } from './po.js';
 import { handleAllianzPortal } from './allianz.js';
 import { handleIkhlasPortal } from './ikhlas.js';
+import { handleAtomePortal } from './atome.js';
 
 const sessions = new Map();          // sid → { tenant, step: 'otp' | 'change' | 'ok' }
 const USER = 'agent01';
@@ -39,6 +40,7 @@ function strongEnough(p) {
 
 export async function handleMockPortal(req, res, url, readForm) {
   if (url.pathname.startsWith('/mock-portal/allianz')) return handleAllianzPortal(req, res, url);
+  if (url.pathname.startsWith('/mock-portal/atome')) return handleAtomePortal(req, res, url, readForm);
   if (url.pathname.startsWith('/mock-portal/ikhlas')) return handleIkhlasPortal(req, res, url, readForm);
   if (url.pathname === '/mock-portal/po' || url.pathname.startsWith('/mock-portal/po/')) return handlePoPortal(req, res, url, readForm);
   const [, tenantName = 'basic', ...rest] = url.pathname.replace('/mock-portal', '').split('/');

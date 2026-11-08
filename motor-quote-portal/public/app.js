@@ -348,7 +348,10 @@ function offerCard(o, i, selectable) {
       </ul>
     </details>` : ''}
     ${o.benefits?.length ? `<ul class="benefits">${o.benefits.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
-    ${selectable && payConfig.fiuu && current?.id ? `<div class="pay no-print"><button class="ghost" data-pay="${esc(o.providerId)}">💳 Payment link</button><div class="pay-out"></div></div>` : ''}
+    ${selectable && (payConfig.fiuu || payConfig.atome) && current?.id ? `<div class="pay no-print"><div class="pay-actions">
+      ${payConfig.fiuu ? `<button class="ghost" data-pay="${esc(o.providerId)}" data-via="fiuu">💳 Fiuu link</button>` : ''}
+      ${payConfig.atome ? `<button class="ghost" data-pay="${esc(o.providerId)}" data-via="atome">Atome 3x link</button>` : ''}
+      </div><div class="pay-out"></div></div>` : ''}
   </article>`;
 }
 
@@ -549,22 +552,22 @@ $('#docFile').addEventListener('change', async (e) => {
 });
 
 // ---------- Payment links ----------
-const payConfig = { fiuu: false };
+const payConfig = { fiuu: false, atome: false };
 fetch('api/config').then((r) => (r.ok ? r.json() : {})).then((c) => Object.assign(payConfig, c)).catch(() => {});
 
 $('#results').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-pay]');
   if (!btn || !current) return;
-  const out = btn.nextElementSibling;
-  btn.disabled = true; out.textContent = 'Making link…';
+  const out = btn.closest('.pay').querySelector('.pay-out');
+  btn.disabled = true; out.textContent = btn.dataset.via === 'atome' ? 'Atome bot is making the link…' : 'Making link…';
   try {
-    const r = await fetch('api/payments/fiuu', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ quoteId: current.id, providerId: btn.dataset.pay }) });
+    const r = await fetch(`api/payments/${btn.dataset.via}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ quoteId: current.id, providerId: btn.dataset.pay }) });
     if (r.status === 401) { location.href = 'login'; return; }
     const p = await r.json();
     if (!r.ok) throw new Error(p.error);
     const { owner, vehicle } = current.request;
     const first = (owner.name || '').split(' ')[0];
-    const text = `Salam${first ? ' ' + first : ''}, here is the payment link for ${vehicle.regNo} (${p.insurer}), ${rm(p.amount)}:\n${p.link}\n\nOrder ${p.orderId}. Thank you.`;
+    const text = `Salam${first ? ' ' + first : ''}, here is the ${p.provider === 'Atome' ? 'Atome (pay in 3) ' : ''}payment link for ${vehicle.regNo} (${p.insurer}), ${rm(p.amount)}:\n${p.link}\n\nOrder ${p.orderId}. Thank you.`;
     const phone = (owner.phone || '').replace(/\D/g, '').replace(/^0/, '60');
     out.innerHTML = `<input readonly value="${esc(p.link)}" aria-label="Payment link">
       <div class="pay-actions"><button class="ghost" data-copy>Copy</button><a class="btn primary" target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${encodeURIComponent(text)}">WhatsApp</a></div>`;
