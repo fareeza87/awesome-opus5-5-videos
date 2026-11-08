@@ -105,7 +105,7 @@ async function pickMakeModel(page, vehicle) {
 
 // Price as shown on the Summary page ("Premium Information"). This one has the
 // car's real NCD; the e-Quotation PDF is printed at 0% NCD.
-function summaryPremium(text) {
+export function summaryPremium(text) {
   const i = text.search(/Premium Summary/i);
   if (i < 0) return null;
   const t = text.slice(i, i + 1500);
@@ -117,7 +117,7 @@ function summaryPremium(text) {
     ncdAmount: num(/No Claim Discount\s*\([\d.]+%\)\s*:?\s*([\d,]+\.\d{2})/i),
     addonTotal: num(/Total Extra Cover Premium\s*:?\s*([\d,]+\.\d{2})/i) || 0,
     gross: num(/Gross Premium\s*:?\s*([\d,]+\.\d{2})/i),
-    sst: num(/Service Tax[^:\n]*:?\s*([\d,]+\.\d{2})/i),
+    sst: num(/Service Tax(?:\s*\([^)]*\))?\s*:?\s*([\d,]+\.\d{2})/i),
     stampDuty: num(/Stamp Duty\s*:?\s*([\d,]+\.\d{2})/i),
     total: num(/Total Amount\s*:?\s*([\d,]+\.\d{2})/i),
   };
