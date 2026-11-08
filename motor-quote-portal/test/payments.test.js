@@ -1,3 +1,4 @@
+import { atomeAmount } from '../public/whatsapp.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -39,7 +40,7 @@ test('Atome bot: link for this order only, right outlet, real amount', { skip: !
     const pay = await post('/api/payments/atome', { quoteId: q.id, providerId: offer.providerId });
     assert.match(pay.link, /^https:\/\/gateway\.atome\.my\/pay\/VBK2281_\d{6}-/);
     assert.ok(!pay.link.includes('OTHERCUSTOMER'));
-    assert.equal(pay.amount, offer.total);
+    assert.equal(pay.amount, atomeAmount(offer.total)); // rounded total + agency Atome charge (6%)
     const saved = await (await fetch(`http://localhost:${port}/api/quotes/${q.id}`)).json();
     assert.equal(saved.payments[0].link, pay.link);
   } finally {

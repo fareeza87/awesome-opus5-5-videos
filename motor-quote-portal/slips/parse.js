@@ -244,7 +244,8 @@ function vehicleInfo(lines) {
   const text = lines.join('\n');
   const regNo = /(?:vehicle no\.?|registration no\.?(?: vehicle)?|vehicle registration no\.?)\s*[:]?\s*([A-Z]{1,3}\s?\d{1,4}\s?[A-Z]?)\b/i.exec(text)?.[1];
   const year = /year of manufactur\w*\s*[:/]?[^0-9\n]{0,30}(19\d{2}|20\d{2})/i.exec(text)?.[1];
-  const make = /make (?:&|and) (?:model|type)[^:\n]*?\s{2,}([A-Z][^\n]{2,40}?)(?:\s{2,}|$)/i.exec(text)?.[1];
+  const make = /make (?:&|and) (?:model|type)[^:\n]*?\s{2,}([A-Z][^\n]{2,40}?)(?:\s{2,}|$)/i.exec(text)?.[1]
+    || /make\s*\/\s*model\s{2,}([A-Z][^\n]{2,90}?)(?:\s{2,}|$)/im.exec(text)?.[1]; // Allianz: "Make / Model   PERODUA BEZZA G MY16 …"
   // A label that wrapped can pull in the next column's label instead of the model.
   const makeModel = make && !/capacity|tonnage|^cubic/i.test(make) ? make.trim() : undefined;
   return { regNo: regNo?.replace(/\s+/g, ' ').trim(), year: year && Number(year), makeModel };

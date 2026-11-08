@@ -30,6 +30,7 @@ import { readDocument, closeOcr } from './slips/grant.js';
 import { townFromPostcode } from './providers/rpa/bots/my-address.js';
 import { fiuuPayLink, fiuuConfigured } from './payments/fiuu.js';
 import { atomePayLink, atomeConfigured } from './payments/atome.js';
+import { roundMY, atomeAmount } from './public/whatsapp.js';
 
 // Printed on every quotation. Change to your agency's details.
 const AGENCY = {
@@ -225,11 +226,14 @@ const server = http.createServer(async (req, res) => {
       const now = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Kuala_Lumpur' }).format(new Date()).replace(/:/g, '');
       const orderId = `${plate}_${now}`.slice(0, 32);
       const { owner } = row.request;
+      // FPX: the rounded total. Atome: rounded total + the agency's Atome charge (ATOME_SURCHARGE_PCT, default 6).
+      const surcharge = Number(process.env.ATOME_SURCHARGE_PCT ?? 6) / 100;
+      const amount = payWith === 'fiuu' ? roundMY(offer.total) : atomeAmount(offer.total, surcharge);
       try {
         const link = payWith === 'fiuu'
-          ? fiuuPayLink({ orderId, amount: offer.total, name: owner.name, email: owner.email, mobile: owner.phone, description: `Car insurance ${plate} - ${offer.provider}` })
-          : (await atomePayLink({ plate, amount: offer.total, orderId })).link;
-        const pay = { provider: payWith === 'fiuu' ? 'Fiuu' : 'Atome', insurer: offer.provider, amount: offer.total, orderId, link, createdAt: new Date().toISOString() };
+          ? fiuuPayLink({ orderId, amount, name: owner.name, email: owner.email, mobile: owner.phone, description: `Car insurance ${plate} - ${offer.provider}` })
+          : (await atomePayLink({ plate, amount, orderId })).link;
+        const pay = { provider: payWith === 'fiuu' ? 'Fiuu' : 'Atome', insurer: offer.provider, amount, orderId, link, createdAt: new Date().toISOString() };
         row.payments = [pay, ...(row.payments || [])];
         writing = writing.catch(() => {}).then(() => writeDb(rows));
         await writing;

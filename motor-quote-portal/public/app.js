@@ -1,4 +1,5 @@
 import { ADDONS, COVER_TYPES, ageFromNric } from './engine/tariff.js';
+import { customerMessage } from './whatsapp.js';
 import { rateQuote } from './engine/rate.js';
 import { compareStream, rank } from './engine/compare.js';
 import { demoLookup } from './engine/lookup.js';
@@ -353,7 +354,8 @@ function offerCard(o, i, selectable) {
       </ul>
     </details>` : ''}
     ${o.benefits?.length ? `<ul class="benefits">${o.benefits.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
-    ${selectable && (payConfig.fiuu || payConfig.atome) && current?.id ? `<div class="pay no-print"><div class="pay-actions">
+    ${selectable && current?.id ? `<div class="pay no-print"><div class="pay-actions">
+      <button class="primary" data-msg="${esc(o.providerId)}">📩 Message + payment links</button>
       ${payConfig.fiuu ? `<button class="ghost" data-pay="${esc(o.providerId)}" data-via="fiuu">💳 Fiuu link</button>` : ''}
       ${payConfig.atome ? `<button class="ghost" data-pay="${esc(o.providerId)}" data-via="atome">Atome 3x link</button>` : ''}
       </div><div class="pay-out"></div></div>` : ''}
@@ -559,6 +561,34 @@ $('#docFile').addEventListener('change', async (e) => {
 // ---------- Payment links ----------
 const payConfig = { fiuu: false, atome: false };
 fetch('api/config').then((r) => (r.ok ? r.json() : {})).then((c) => Object.assign(payConfig, c)).catch(() => {});
+
+// One click: FPX + Atome links, then the agency's WhatsApp message for this insurer.
+$('#results').addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-msg]');
+  if (!btn || !current) return;
+  const out = btn.closest('.pay').querySelector('.pay-out');
+  const offer = current.results.find((o) => o.providerId === btn.dataset.msg);
+  btn.disabled = true;
+  const links = {}; const problems = [];
+  for (const via of ['fiuu', 'atome'].filter((v) => payConfig[v])) {
+    out.textContent = via === 'atome' ? 'Atome bot is making the link…' : 'Making FPX link…';
+    try {
+      const r = await fetch(`api/payments/${via}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ quoteId: current.id, providerId: offer.providerId }) });
+      if (r.status === 401) { location.href = 'login'; return; }
+      const p = await r.json();
+      if (!r.ok) throw new Error(p.error);
+      links[via] = p;
+    } catch (err) { problems.push(`${via === 'fiuu' ? 'FPX' : 'Atome'}: ${err.message}`); }
+  }
+  const text = customerMessage(current, offer, links);
+  const phone = (current.request.owner.phone || '').replace(/\D/g, '').replace(/^0/, '60');
+  out.innerHTML = `${problems.length ? `<p class="warn">${esc(problems.join(' · '))}</p>` : ''}<textarea class="msg" rows="14" readonly>${esc(text)}</textarea>
+    <div class="pay-actions"><button class="ghost" data-copy>Copy</button><a class="btn primary" target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${encodeURIComponent(text)}">WhatsApp</a></div>`;
+  out.querySelector('[data-copy]').onclick = async (ev) => {
+    try { await navigator.clipboard.writeText(text); ev.target.textContent = 'Copied'; } catch { out.querySelector('textarea').select(); }
+  };
+  btn.disabled = false;
+});
 
 $('#results').addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-pay]');
