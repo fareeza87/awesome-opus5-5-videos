@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Motor Quote Compare</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar no-print">
+  <div class="brand"><span class="logo">MQ</span> <span>Motor Quote<span class="full"> Compare</span></span></div>
+  <nav>
+    <button class="tab active" data-tab="quote">New quote</button>
+    <button class="tab" data-tab="slips">Upload slips</button>
+    <button class="tab" data-tab="history">History</button>
+    <a class="tab" href="settings" aria-label="Settings">⚙︎</a>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-quote" class="layout">
+    <form id="quote-form" class="card no-print" autocomplete="off">
+      <!-- One place for everything the customer sends: grant/policy photo or PDF, or their WhatsApp text. -->
+      <div class="intake" id="intake">
+        <label class="snap" id="snapBtn">
+          <input type="file" id="docFile" accept="image/*,application/pdf">
+          <span>📎 Grant · old policy · WhatsApp</span><small class="muted">Tap to snap or choose the geran / last policy, or paste the customer's message below. You can also drop a file here.</small>
+        </label>
+        <textarea id="pasteText" rows="3" placeholder="Paste the customer's WhatsApp message here: it fills the form by itself"></textarea>
+        <small class="muted" id="docMsg" aria-live="polite"></small>
+      </div>
+      <h2>Customer &amp; vehicle</h2>
+      <div class="grid">
+        <label>ID type
+          <select name="idType" id="idType">
+            <option value="nric">Malaysian (NRIC)</option>
+            <option value="passport">Foreigner (passport)</option>
+            <option value="company">Company</option>
+          </select>
+        </label>
+        <label><span id="idLabel">NRIC no.</span><input name="nric" id="nric" required placeholder="900101-14-5678" maxlength="20"></label>
+        <label>Vehicle plate no.<input name="regNo" id="regNo" required placeholder="WXY 1234" style="text-transform:uppercase"></label>
+        <label>Postcode<input name="postcode" id="postcode" required pattern="\d{5}" maxlength="5" placeholder="50450" inputmode="numeric"></label>
+        <label>Customer name<input name="name" id="name" placeholder="Blank = CUSTOMER"></label>
+        <label>Mobile<input name="phone" id="phone" placeholder="Blank = 012-2902990" inputmode="tel"></label>
+        <label class="span2">Email<input name="email" id="email" type="email" placeholder="Blank = digital@metafin.com.my"></label>
+        <label class="span2 consent"><input type="checkbox" name="pdpaConsent" id="pdpaConsent"> Customer agreed to the privacy notice (PDPA). Needed by insurers that ask on their form, e.g. Allianz.</label>
+        <label class="span2">Address<input name="address" id="address" placeholder="Blank = town from postcode (e.g. 43000 → Kajang)"></label>
+      </div>
+
+      <h2>Cover</h2>
+      <div class="grid">
+        <label>Cover type
+          <select name="coverType" id="coverType">
+            <option value="comprehensive">Comprehensive</option>
+            <option value="tpft">Third Party, Fire &amp; Theft</option>
+            <option value="tp">Third Party only</option>
+          </select>
+        </label>
+        <label>Windscreen cover (RM)<input name="windscreenSI" id="windscreenSI" type="number" min="0" step="100" placeholder="1500"></label>
+      </div>
+      <h3>Add-ons</h3>
+      <div class="chips" id="addons"></div>
+      <div class="grid" id="ehWrap" hidden>
+        <label>E-hailing period
+          <select name="ehailingPeriod" id="ehailingPeriod">
+            <option value="annual">Annual</option><option value="daily">Daily</option><option value="6m">6 months</option>
+            <option value="3m">3 months</option><option value="1m">1 month</option>
+          </select>
+        </label>
+        <p class="muted small" style="align-self:end">Insurers that sell annual only (e.g. Allianz, Generali) are quoted annual and flagged.</p>
+      </div>
+
+      <details id="drvDetails">
+        <summary>Driver details <span class="muted">· asked by some insurers (e.g. Takaful Ikhlas)</span></summary>
+        <p class="muted small">Blank = agency defaults: no claims, no offences, occupation Others, 5 years driving, race and religion Others.</p>
+        <div class="grid">
+          <label>Claims in last 3 years
+            <select name="claims3y" id="claims3y"><option value="">Not asked</option><option>0</option><option>1</option><option>2</option><option value="3">3 or more</option></select>
+          </label>
+          <label>Driving experience (years)<input name="drivingExp" id="drivingExp" type="number" min="0" max="70"></label>
+          <label>Traffic offences (3 years)
+            <select name="violations" id="violations"><option value="">Not asked</option><option value="none">None</option><option value="yes">Yes</option></select>
+          </label>
+          <label>Occupation<input name="occupation" id="occupation" placeholder="e.g. Clerk, Engineer"></label>
+          <label>Race
+            <select name="race" id="race"><option value="">Not asked</option><option>Malay</option><option>Chinese</option><option>Indian</option><option>Others</option></select>
+          </label>
+          <label>Religion
+            <select name="religion" id="religion"><option value="">Not asked</option><option>Islam</option><option>Buddhism</option><option>Christianity</option><option>Hinduism</option><option>Others</option></select>
+          </label>
+        </div>
+      </details>
+
+      <details id="vehDetails">
+        <summary>Vehicle, NCD &amp; sum insured <span class="muted" id="vehHint">· auto from ISM lookup</span></summary>
+        <p class="muted small">Leave blank and the bot fills these in from the insurer's ISM enquiry. Type a value only to override it. The same sum insured is sent to every insurer.</p>
+        <div class="grid">
+          <label class="span2">Quick pick
+            <select name="pick" id="pick"><option value="">— Common model —</option></select>
+          </label>
+          <label>Make<input name="make" id="make"></label>
+          <label>Model<input name="model" id="model"></label>
+          <label>Year made<input name="year" id="year" type="number" min="1980"></label>
+          <label>Engine cc<input name="cc" id="cc" type="number" min="50"></label>
+          <label>Seats<input name="seats" id="seats" type="number" min="2" max="15" placeholder="5"></label>
+          <label>Local / imported
+            <select name="origin" id="origin"><option value="">Not known</option><option value="local">Locally assembled</option><option value="imported">Imported</option></select>
+          </label>
+          <label>Extra named drivers<input name="namedDrivers" id="namedDrivers" type="number" min="0" max="10" value="0"></label>
+          <label>Sum insured (RM)<input name="sumInsured" id="sumInsured" type="number" min="1000" step="500" placeholder="Auto"></label>
+          <label>Value basis
+            <select name="valueBasis" id="valueBasis"><option value="market">Market value</option><option value="agreed">Agreed value</option></select>
+          </label>
+          <label>NCD
+            <select name="ncd" id="ncd">
+              <option value="">Auto (ISM)</option>
+              <option value="0">0%</option><option value="25">25%</option><option value="30">30%</option>
+              <option value="38.33">38.33%</option><option value="45">45%</option><option value="55">55%</option>
+            </select>
+          </label>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="go">Get quotes</button>
+        <button type="button" id="demo" class="ghost">Fill sample</button>
+        <button type="reset" class="ghost" id="clear">Clear</button>
+      </div>
+      <p class="errors" id="errors" role="alert"></p>
+    </form>
+
+    <section id="results" class="results">
+      <div class="empty card no-print">
+        <p><strong>Enter IC, plate and postcode.</strong> The bot looks the car up once, then every panel insurer is quoted on the same sum insured at the same time. Prices appear here as each insurer answers.</p>
+      </div>
+    </section>
+  </section>
+
+  <section id="tab-slips" class="card hidden no-print">
+    <h2>Compare quotation slips</h2>
+    <p class="muted small">Already have quotation PDFs from the insurer portals? Drop them here. Each slip is read and checked (basic − NCD + add-ons = gross, gross + tax + stamp = total), then shown side by side with the usual quotation, PDF and WhatsApp.</p>
+    <label class="drop" id="drop">
+      <input type="file" id="slipFiles" accept="application/pdf" multiple>
+      <b>Drop slip PDFs here</b><span class="muted">or tap to choose · Allianz, Generali, Berjaya Sompo, Takaful Malaysia, Takaful Ikhlas, P&amp;O, MSIG, Etiqa, Zurich</span>
+    </label>
+    <div id="slipList"></div>
+    <div class="grid slip-cust">
+      <label>Customer name<input id="slipName" placeholder="Optional"></label>
+      <label>Mobile<input id="slipPhone" placeholder="For WhatsApp" inputmode="tel"></label>
+      <label>Plate no.<input id="slipPlate" placeholder="If not on the slips" style="text-transform:uppercase"></label>
+    </div>
+    <div class="actions"><button class="primary" id="slipGo" disabled>Build comparison</button><button class="ghost" id="slipClear">Clear</button></div>
+  </section>
+
+  <section id="tab-history" class="card hidden no-print">
+    <div class="history-head">
+      <h2>Saved comparisons</h2>
+      <input id="history-search" placeholder="Search name, NRIC or plate">
+    </div>
+    <div id="history-list"></div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

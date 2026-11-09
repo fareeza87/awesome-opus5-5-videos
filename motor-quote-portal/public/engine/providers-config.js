@@ -1,0 +1,131 @@
+// DEMO insurer profiles. Names and numbers are placeholders, not real rates.
+// Replace each entry with your panel insurer and either tune these factors
+// from their rate guide, or switch its `mode` to 'api' / 'portal' and write
+// a connector in /providers (see README).
+
+const base = {
+  regionFactor: { peninsular: 1, east: 1 },
+  addonFactor: {},
+  maxVehicleAge: 15,
+  maxSumInsured: 500000,
+  minPremium: 60,
+  ehailing: { periods: ['annual', '6m', '3m', '1m'] },
+  excess: 0,
+  validDays: 14,
+};
+
+export const PROVIDERS = [
+  {
+    ...base,
+    id: 'insurer-a',
+    name: 'Insurer A (demo)',
+    kind: 'conventional',
+    mode: 'demo',
+    baseFactor: 0.92,
+    oldCarLoading: 1.2,
+    newCarDiscount: 0.95,
+    youngDriverLoading: 1.25,
+    agreedValueLoading: 1.05,
+    commissionRate: 0.10,
+    addonFactor: { windscreen: 1, specialPerils: 0.9 },
+    benefits: ['24h towing up to 200km', 'Free windscreen claim does not affect NCD'],
+  },
+  {
+    ...base,
+    id: 'insurer-b',
+    name: 'Insurer B (demo)',
+    kind: 'conventional',
+    mode: 'demo',
+    baseFactor: 1.0,
+    oldCarLoading: 1.1,
+    newCarDiscount: 0.9,
+    youngDriverLoading: 1.35,
+    agreedValueLoading: 1.0,
+    commissionRate: 0.10,
+    maxVehicleAge: 20,
+    ehailing: { periods: ['annual'] },
+    benefits: ['Agreed value at no extra charge', 'Nationwide panel workshops', 'E-hailing: annual only'],
+  },
+  {
+    ...base,
+    id: 'takaful-c',
+    name: 'Takaful C (demo)',
+    kind: 'takaful',
+    mode: 'demo',
+    baseFactor: 0.96,
+    regionFactor: { peninsular: 1, east: 0.95 },
+    oldCarLoading: 1.15,
+    newCarDiscount: 1.0,
+    youngDriverLoading: 1.2,
+    agreedValueLoading: 1.03,
+    commissionRate: 0.10,
+    ehailing: false,
+    validDays: 30,
+    benefits: ['Surplus sharing (cash back) if no claims', 'Shariah-compliant'],
+  },
+  {
+    ...base,
+    id: 'insurer-d',
+    name: 'Insurer D (demo)',
+    kind: 'conventional',
+    mode: 'demo',
+    baseFactor: 0.88,
+    oldCarLoading: 1.3,
+    newCarDiscount: 0.92,
+    youngDriverLoading: 1.4,
+    agreedValueLoading: 1.08,
+    commissionRate: 0.10,
+    maxVehicleAge: 12,
+    maxSumInsured: 300000,
+    excess: 300,
+    addonFactor: { windscreen: 1.1 },
+    benefits: ['Lowest base rate', 'RM300 excess applies'],
+  },
+  {
+    ...base,
+    id: 'takaful-e',
+    name: 'Takaful E (demo)',
+    kind: 'takaful',
+    mode: 'demo',
+    baseFactor: 1.02,
+    oldCarLoading: 1.05,
+    newCarDiscount: 0.93,
+    youngDriverLoading: 1.15,
+    agreedValueLoading: 1.0,
+    commissionRate: 0.10,
+    maxVehicleAge: 25,
+    addonFactor: { specialPerils: 0.8, srcc: 0.8 },
+    benefits: ['Accepts older cars', 'Cheaper flood cover'],
+  },
+];
+
+// Your panel insurers, with what we know about each portal. Each one is
+// switched off until its RPA bot is written (providers/rpa/bots/<id>.js).
+// Set enabled: true once the bot passes against the live portal.
+//   login: 'otp'              portal sends a one-time code at login; staff are asked for it
+//   login: 'password-change'  portal forces a new password; the bot sets one and saves it
+//   splash: true              a notice pops up after login; the bot closes it
+export const PANEL = [
+  { id: 'allianz', name: 'Allianz General Insurance', kind: 'conventional', mode: 'rpa', enabled: false,
+    rpa: { bot: 'allianz', defaultUrl: 'https://sat.allianz.com.my/' },
+    ehailing: { periods: ['annual'] }, addonFixed: { allDrivers: 50 }, validDays: 30,
+    notes: 'Agreed value with recommended sum insured range. All drivers RM50.' },
+  { id: 'generali', name: 'Generali Insurance Malaysia', kind: 'conventional', mode: 'rpa', rpa: { bot: 'generali', defaultUrl: 'https://omni.generali.com.my/login' }, enabled: false, timeoutMs: 480000, // its form is slow
+    ehailing: { periods: ['annual'], fixed: 1950 }, validDays: 30,
+    notes: 'E-hailing annual only, fixed RM1,950. ISM-ABI agreed value.' },
+  { id: 'zurich', name: 'Zurich General Takaful', kind: 'takaful', mode: 'rpa', rpa: { bot: 'zurich' }, enabled: false, onHold: 'Build after the other insurers are live',
+    login: 'otp', validDays: 30, notes: 'OTP at login. Slip shows price at every NCD level.' },
+  { id: 'etiqa', name: 'Etiqa General Takaful', kind: 'takaful', mode: 'rpa', rpa: { bot: 'etiqa' }, enabled: false, onHold: 'Build after the other insurers are live',
+    login: 'password-change', splash: true, validDays: 90, notes: 'Splash screen after login; forces a password change.' },
+  { id: 'bsompo', name: 'Berjaya Sompo Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'bsompo' }, enabled: false, validDays: 30 },
+  { id: 'stm', name: 'Takaful Malaysia', kind: 'takaful', mode: 'rpa', rpa: { bot: 'stm' }, enabled: false, validDays: 8,
+    notes: 'Some quotes come back REFERRED to the motor underwriter.' },
+  { id: 'ikhlas', name: 'Takaful Ikhlas General', kind: 'takaful', mode: 'rpa', enabled: false, ehailing: false,
+    rpa: { bot: 'ikhlas', defaultUrl: 'https://w7.financial-link.com.my/Agency/loginTAK.jsp' },
+    notes: 'Bot reads the Ikhlas slip after Get A Quote. Needs driver details on the form.' },
+  { id: 'po', name: 'Pacific & Orient Insurance', kind: 'conventional', mode: 'rpa', enabled: false, validDays: 14,
+    rpa: { bot: 'po', defaultUrl: 'https://login2agent.pacific-orient.com/' }, ehailing: false, hours: { closed: ['21:00', '05:00'] },
+    notes: 'Bot ported from the agency script. Needs the customer address. No e-hailing. Cars made before 2012 quoted TPFT.' },
+  { id: 'msig', name: 'MSIG Insurance (Malaysia)', kind: 'conventional', mode: 'rpa', rpa: { bot: 'msig' }, enabled: false, validDays: 29 },
+  { id: 'liberty', name: 'Liberty General Insurance', kind: 'conventional', mode: 'rpa', rpa: { bot: 'liberty' }, enabled: false, validDays: 15 },
+];

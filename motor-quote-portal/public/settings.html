@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings · Motor Quote Compare</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .set { max-width: 640px; margin: 0 auto; display: grid; gap: 14px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .row h3 { margin: 0; }
+  .ok { color: var(--good); font-size: 13px; }
+  .hold { font-size: 12px; color: var(--muted); }
+  form.login { display: grid; gap: 8px; margin-top: 10px; }
+  .switch { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-size: 14px; }
+  .switch input { width: auto; }
+</style></head>
+<body>
+<header class="topbar"><div class="brand"><span class="logo">MQ</span> Settings</div><nav><a class="tab" href="/">Back to quotes</a></nav></header>
+<main class="set" id="list"><p class="muted">Loading…</p></main>
+<script type="module">
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const api = async (path, body) => {
+  const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
+  if (r.status === 401) { location.href = '/login'; throw new Error('Sign in'); }
+  const j = await r.json(); if (!r.ok) throw new Error(j.error); return j;
+};
+async function draw() {
+  const s = await api('/api/settings');
+  document.getElementById('list').innerHTML = `<p class="muted small">Logins are stored encrypted on the portal computer and are never shown again. Switch an insurer on to include it in every quote.</p>` +
+    s.portals.map((p) => `<section class="card">
+      <div class="row"><h3>${esc(p.name)}</h3>
+        ${p.kind === 'insurer' ? `<label class="switch"><input type="checkbox" data-on="${p.id}" ${p.enabled ? 'checked' : ''} ${p.hold ? 'disabled' : ''}> Quote this insurer</label>` : ''}</div>
+      ${p.hold ? `<p class="hold">On hold: ${esc(p.hold)}</p>` : ''}
+      <p class="${p.loginSet ? 'ok' : 'muted small'}">${p.loginSet ? `✓ Login saved${p.changedAt ? ' ' + new Date(p.changedAt).toLocaleString('en-MY') : ''}` : 'No login saved yet'}${p.notes ? ` · ${esc(p.notes)}` : ''}</p>
+      <form class="login" data-id="${p.id}">
+        <input name="user" placeholder="${esc(p.userLabel || 'User ID')}" autocomplete="off" aria-label="User ID">
+        <input name="pass" type="password" placeholder="Password" autocomplete="new-password" aria-label="Password">
+        ${p.secret ? '<input name="secret" type="password" placeholder="Secret question answer" autocomplete="off" aria-label="Secret answer"><input name="concurrent" type="password" placeholder="Code asked on concurrent login" autocomplete="off" aria-label="Concurrent login code">' : ''}
+        <div class="row"><button class="primary">Save login</button><span class="muted small msg"></span></div>
+      </form></section>`).join('');
+  document.querySelectorAll('form.login').forEach((f) => f.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msg = f.querySelector('.msg');
+    try { await api('/api/settings/login', { id: f.dataset.id, user: f.user.value.trim(), pass: f.pass.value, secret: f.secret?.value, concurrent: f.concurrent?.value }); msg.textContent = 'Saved'; setTimeout(draw, 600); }
+    catch (err) { msg.textContent = err.message; }
+  }));
+  document.querySelectorAll('[data-on]').forEach((c) => c.addEventListener('change', async () => {
+    const ids = [...document.querySelectorAll('[data-on]:checked')].map((x) => x.dataset.on);
+    await api('/api/settings/insurers', { ids });
+  }));
+}
+draw().catch((e) => { document.getElementById('list').textContent = e.message; });
+</script></body></html>
