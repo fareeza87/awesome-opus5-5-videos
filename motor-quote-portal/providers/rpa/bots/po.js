@@ -128,9 +128,19 @@ export default {
     await (await find(page, "input[name='txtCurrRegNo']")).fill(plate);
     const info = await find(page, "input[name='btnINFO'], input[value*='GET INFO' i]");
     if (info) await info.click(); else await (await find(page, "input[name='txtCurrRegNo']")).press('Enter');
-    // GET INFO reloads the page with the car filled in from JPJ/ISM.
-    await page.waitForLoadState('load').catch(() => {});
-    await page.waitForTimeout(1500);
+    // GET INFO reloads the page with the car filled in from JPJ/ISM. The lookup
+    // can take a while: wait for the year, pressing GET INFO once more if needed.
+    const yearFilled = async () => !!(await (await find(page, "input[name='txtYrMake']"))?.inputValue().catch(() => ''));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await page.waitForLoadState('load').catch(() => {});
+      for (let i = 0; i < 20 && !(await yearFilled()); i++) {
+        if (/no record found/i.test(await allText(page))) break;
+        await page.waitForTimeout(1000);
+      }
+      if (await yearFilled() || /no record found/i.test(await allText(page))) break;
+      const again = await find(page, "input[name='btnINFO'], input[value*='GET INFO' i]");
+      if (again) await again.click();
+    }
     if (/no record found/i.test(await allText(page))) return { status: 'declined', reasons: ['P&O: vehicle not found at JPJ/ISM'] };
     // Cover is chosen here; the year comes from P&O's JPJ/ISM lookup when the form has none.
     const year = Number(vehicle.year) || Number(await (await find(page, "input[name='txtYrMake']"))?.inputValue().catch(() => '')) || 0;
