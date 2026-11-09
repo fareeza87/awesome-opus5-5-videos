@@ -261,7 +261,10 @@ export default {
       const pd = cover.addons?.allDrivers ? 'ALL DRIVERS' : Number(req.vehicle?.namedDrivers || cover.namedDrivers) > 1 ? 'SEVERAL NAMED' : (process.env.IKHLAS_PERMITTED_DRIVER || 'INSURED & ONE OTHER').toUpperCase();
       const got = await pickOption(f, 'piamdrv', (t) => t.includes(pd));
       if (got) notes.push(`Permitted driver: ${got}`);
-    } else if (cover.addons?.allDrivers) await pickOption(f, 'piamdrv', (t, v) => t.includes('ALL DRIVER') || v === '03');
+    } else if (cover.addons?.allDrivers) {
+      const got = await pickOption(f, 'piamdrv', (t, v) => t.includes('ALL DRIVER') || v === '03');
+      if (got) notes.push(`Permitted driver: ${got}`);
+    }
 
     // Sum covered: the shared amount if given (the portal checks its own range).
     if (coverType !== 'tp' && cover.sumInsured) await fill(f, 'sum_insured', Math.round(cover.sumInsured));
@@ -313,6 +316,7 @@ export default {
     // Ikhlas prices even when the chosen car differs from ISM, but says so: not a valid quote.
     const slipText = slipFrame ? await slipFrame.evaluate(() => document.body?.innerText || '').catch(() => '') : '';
     if (/differ from ISM VIX|return to previous screen/i.test(slipText)) {
+      if (process.env.RPA_DEBUG === '1') { const t = slipText.replace(/\s+/g, ' '); const k = t.search(/differ from ISM|return to previous/i); console.log('[ikhlas] ism differ', t.slice(Math.max(0, k - 700), k + 300)); }
       return { status: 'declined', reasons: [`Takaful Ikhlas: the car picked (${cells[idx]?.slice(4, 6).join(' ') || 'variant'}) differs from ISM's record; check the variant against the grant`] };
     }
     if (!slipFrame) throw new Error(`Takaful Ikhlas: no quotation slip after Get A Quote${page.__ikDialogs.length ? ` (${page.__ikDialogs.join(' | ')})` : ''}`);
@@ -344,7 +348,7 @@ export default {
       status: 'quoted',
       coverType,
       siNote,
-      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...slip.notes, ...auditAddons(cover, slip)],
+      notes: [...notes, ...slip.checks.map((c) => `Check slip: ${c}`), ...slip.notes, ...auditAddons(cover, slip).filter((n) => !(/^(all drivers|waiver of compulsory)/i.test(n) && notes.some((x) => /Permitted driver: ALL DRIVER/i.test(x))))],
       slipFile: file,
       benefits: ['Takaful Ikhlas quotation slip saved'],
     };

@@ -87,7 +87,8 @@ function scriptDismiss(page, code = '') {
 // Coverage page: Make / Model is picked in a search pop-up. Use last year's
 // model shown on the page ("Previous Year Selected Make / Model : PERODUA AXIA -
 // 1000 SE (CVT)"), or the make/model from the form, and take the closest row.
-async function pickMakeModel(page, vehicle) {
+async function pickMakeModel(page, vehicleIn) {
+  const vehicle = { ...vehicleIn };
   const box = page.locator('input[formcontrolname="makeModel"]');
   await box.waitFor({ state: 'attached', timeout: 6000 }).catch(() => {});
   // The car's details (year, cc, last year's model) load a moment after the page.
@@ -97,6 +98,9 @@ async function pickMakeModel(page, vehicle) {
     if (year || /Previous Year Selected Make/i.test(await bodyText(page).catch(() => ''))) break;
     await sleep(page, 500);
   }
+  // Engine size from Allianz's own page (JPJ) when the form has none.
+  if (!Number(vehicle.cc)) vehicle.cc = Number(String(await page.locator('input[formcontrolname="vehicleCapacity"]').inputValue().catch(() => '')).replace(/,/g, '')) || 0;
+
   if (!(await box.count())) return null;
   // Allianz may remember a model from an earlier draft: keep it only if it fits the car.
   const current = (await box.inputValue()).trim().toUpperCase();
@@ -109,7 +113,10 @@ async function pickMakeModel(page, vehicle) {
   const [prevModel = '', prevVariant = ''] = prev.split(/\s+-\s+/);
   const wanted = (prevModel || `${vehicle.make || ''} ${vehicle.model || ''}`).trim().toUpperCase();
   if (!wanted) throw new Error('Allianz needs the make/model: fill it in on the form');
-  const keyword = wanted.split(/\s+/).slice(1).join(' ') || wanted;
+  // Search by the model name only ("BEZZA"); engine size and variant pick the row.
+  const MAKES = /^(PERODUA|PROTON|TOYOTA|HONDA|NISSAN|MAZDA|MITSUBISHI|HYUNDAI|KIA|BMW|MERCEDES|VOLKSWAGEN|FORD|SUZUKI|DAIHATSU|ISUZU|SUBARU|LEXUS|AUDI|VOLVO|PEUGEOT|BYD|CHERY|GWM|MG)$/;
+  const keyword = wanted.split(/\s+/).find((w) => /^[A-Z][A-Z-]{2,}$/.test(w) && !MAKES.test(w)) || wanted.split(/\s+/).slice(1).join(' ') || wanted;
+  const wantVariant = new Set((vehicle.model || '').toUpperCase().split(/\s+/).filter((w) => /^[A-Z]{1,6}$/.test(w) && w !== keyword && !MAKES.test(w)));
   const field = box.locator('xpath=ancestor::nx-formfield[1]');
   await press(field.locator('nx-icon, button').last());
   const search = page.locator('.cdk-overlay-pane input[formcontrolname="searchBy"]');
@@ -132,6 +139,7 @@ async function pickMakeModel(page, vehicle) {
   const want = words(prevVariant);
   const score = ([mm, variant, , , cc]) => (mm.toUpperCase() === wanted ? 10 : 0)
     + [...words(variant)].filter((w) => want.has(w)).length * 3
+    + (variant.toUpperCase().split(/\s+/)[0] && wantVariant.has(variant.toUpperCase().split(/\s+/)[0]) ? 4 : 0)
     + (vehicle.cc && Number(String(cc).replace(/,/g, '')) === Number(vehicle.cc) ? 2 : 0)
     + (vehicle.year && variant.includes(`MY${String(vehicle.year).slice(2)}`) ? 1 : 0);
   // With the engine size known, only rows of that size will do.

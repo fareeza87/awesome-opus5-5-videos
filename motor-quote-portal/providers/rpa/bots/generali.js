@@ -114,12 +114,14 @@ export default {
     // 3. Plate, cover start date, then Generali's ISM car lookup (VIX).
     await type(page, f, 'VEHNO', plate);
     f = await settle(page);
-    const start = new Date(Date.now() + 8 * 3600e3 + 864e5);
+    // Cover starts tomorrow, or the day after the current policy ends (found on the premium page).
+    const start = req.__genStart || (cover.startDate ? new Date(`${cover.startDate}T12:00:00Z`) : null) || new Date(Date.now() + 8 * 3600e3 + 864e5);
     const setStart = () => f.evaluate((v) => { const e = document.getElementById('EFFDATE'); e.value = v; e.dispatchEvent(new Event('change', { bubbles: true })); }, dmy(start));
     await setStart();
     await sleep(page, 2500);
     await f.evaluate(() => fnGetVIX()); // a click on the button would clear the date
     for (let i = 0; i < 30 && !(await field(f, 'CAP').inputValue().catch(() => '')); i++) await sleep(page, 1000);
+    step('after vix', JSON.stringify(await f.evaluate(() => [...document.querySelectorAll('input')].filter((e) => /\d{2}[-/]\d{2}[-/]\d{4}/.test(e.value) || /EXP|POL|NCD/i.test(e.name)).map((e) => `${e.name}=${e.value}`)).catch(() => [])));
     const cc = Number(await field(f, 'CAP').inputValue().catch(() => '')) || Number(vehicle.cc) || 0;
     const year = Number(await field(f, 'YEARMAKE').inputValue().catch(() => '')) || Number(vehicle.year) || 0;
     if (!cc) {
@@ -149,7 +151,8 @@ export default {
     if (!rows.length) return { status: 'declined', reasons: [`Generali has no model matching "${keyword}"`] };
     const band = cc ? String(Math.round(cc / 100) * 100) : '';
     const auto = !/manual|\bMT\b/i.test(wantModel);
-    const score = (t) => (band && t.includes(band) ? 5 : 0) + words.filter((w) => w.length > 1 && new RegExp(`\\b${w.replace('.', '\\.')}\\b`, 'i').test(t)).length * 2
+    // Variant words count too, even one letter ("X"); the keyword itself does not.
+    const score = (t) => (band && t.includes(band) ? 5 : 0) + words.filter((w) => w !== keyword && !/^\d/.test(w) && new RegExp(`(^|\\s)${w.replace('.', '\\.')}(\\s|\\)|$)`, 'i').test(t)).length * 3
       + (auto ? (/auto|\bAT\b/i.test(t) ? 1 : 0) : (/manual|\bMT\b/i.test(t) ? 1 : 0));
     let best = rows[0];
     for (const r of rows) if (score(r.text) > score(best.text)) best = r;
@@ -203,7 +206,14 @@ export default {
     // Generali's NCD answer comes a few seconds later, and an early press is
     // ignored: press again until the NCD fields fill (a real 0% shows an effective date).
     await sleep(page, 3000);
-    for (let tries = 0; tries < 3; tries++) {
+    step('before ncd', JSON.stringify(await p2.evaluate(() => ['POLEFF_DATE', 'POLEXP_DATE', 'NCDEFFDATE', 'NCDPCT', 'NCDFROM'].map((n) => `${n}=${document.getElementsByName(n)[0]?.value}`)).catch(() => [])));
+    for (let tries = 0; tries < 4; tries++) {
+      // A second enquiry for the same car can come back empty: clear the NCD section first.
+      if (tries >= 2) {
+        const clear = p2.locator("input[value='Clear NCD'], button:has-text('Clear NCD'), a:has-text('Clear NCD')").first();
+        await clear.click({ timeout: 5000 }).catch(() => clear.evaluate((e) => e.click()).catch(() => {}));
+        await sleep(page, 4000);
+      }
       await ncdBtn.click({ timeout: 8000 }).catch(() => ncdBtn.evaluate((e) => e.click()).catch(() => {}));
       let got = false;
       for (let i = 0; i < 12 && !got; i++) {
@@ -212,6 +222,20 @@ export default {
       }
       if (got) break;
     }
+    // Starting before the current policy ends keeps last year's NCD: start again the day after it ends.
+    const prevExp = await p2.locator("input[name='POLEXP_DATE']").inputValue().catch(() => '');
+    const pm = /(\d{2})-(\d{2})-(\d{4})/.exec(prevExp);
+    if (pm && !req.__genStart && !cover.startDate) {
+      const next = new Date(Date.UTC(+pm[3], +pm[2] - 1, +pm[1] + 1, 12));
+      const days = (next - start) / 864e5;
+      if (days >= 1 && days <= 90) {
+        step('restart at', dmy(next), 'policy ends', prevExp);
+        const again = await this.quote(page, { ...req, __genStart: next }, ctx);
+        again.notes = [`Cover starts ${dmy(next)}, the day after the current policy ends`, ...(again.notes || [])];
+        return again;
+      }
+    }
+    step('extra codes', JSON.stringify(await p2.evaluate(() => [...(document.getElementsByName('EXTRACODE')[0]?.options || [])].map((o) => `${o.value}:${o.text.trim()}`)).catch(() => [])).slice(0, 3000));
     step('ncd', await p2.locator("select[name='NCDPCT']").inputValue().catch(() => '?'), JSON.stringify(page.__genDialogs), 'btn visible', await ncdBtn.isVisible().catch(() => 'x'), 'p2 url', p2.url().slice(-40));
     const want = Object.entries(EXTRA).filter(([k]) => (k === 'ehailing' ? cover.addons?.ehailing && cover.ehailingPeriod !== 'daily' : cover.addons?.[k]));
     for (const [k, code] of want) {
@@ -220,6 +244,17 @@ export default {
       if (k === 'windscreen') await p2.locator("input[name='EXTRASUM']").fill(String(Math.round(cover.windscreenSI || Number(process.env.DEFAULT_WINDSCREEN_SI) || 1000))).catch(() => {});
       await p2.locator('#ADD_EXTRA, button[name=ADD_EXTRA]').first().click().catch(() => {});
       await sleep(page, 2500);
+    }
+    // All Drivers on Generali is the "Multi Drive Bravo" package (it has no waiver add-on).
+    if (cover.addons?.allDrivers || cover.addons?.waiverExcess) {
+      const radios = await p2.evaluate(() => [...document.querySelectorAll('input[type=radio]')].map((e) => `${e.name}=${e.value}${e.checked ? '*' : ''}${e.disabled ? '(off)' : ''}`)).catch(() => []);
+      step('packages', JSON.stringify(radios));
+      const bravo = p2.locator("input[type=radio][value='MULTI_DRIVE_BRAVO']").first();
+      if (await bravo.count()) {
+        await bravo.click({ timeout: 5000 }).catch(() => bravo.evaluate((e) => { e.checked = true; e.dispatchEvent(new Event('click', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); }));
+        await sleep(page, 2500);
+        notes.push('All Drivers: Generali Multi Drive Bravo package');
+      } else notes.push('Generali: Multi Drive Bravo (all drivers) not offered for this car; named drivers only');
     }
     if (cover.addons?.windscreen && !cover.windscreenSI) notes.push(`Windscreen sum insured RM${Number(process.env.DEFAULT_WINDSCREEN_SI || 1000).toLocaleString()} (default)`);
     step('calculate');
@@ -244,6 +279,9 @@ export default {
     if (Math.abs(r.gross + r.sst + r.stampDuty - r.total) > 0.06) checks.push(`Gross + tax + stamp is not the total (${r.total.toFixed(2)})`);
     const keyOf = (code) => Object.entries(EXTRA).find(([, c]) => c === code)?.[0] || 'extra';
     const addons = v.extras.map((e) => ({ key: keyOf(e.code), label: e.label.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()), amount: money(e.amount) }));
+    // The Multi Drive Bravo charge is in the extras total but not in the extras table.
+    const bravoAmt = Math.round((r.addonTotal - addons.reduce((a, x) => a + x.amount, 0)) * 100) / 100;
+    if (bravoAmt > 0.005) addons.unshift({ key: 'allDrivers', label: 'Multi Drive Bravo (All Drivers)', amount: bravoAmt });
     return {
       status: 'quoted',
       source: 'Generali premium screen',

@@ -68,8 +68,10 @@ export function parseCustomerMessage(raw) {
     || lines.find((l) => /^\d{5}$/.test(l)); // a postcode on its own line
   if (postcode) set(out.owner, 'postcode', postcode, 'postcode');
 
+  // Template lines left blank ("Windscreen Cover :" with nothing after) are not a request.
+  const blank = (re) => new RegExp(`(?:${re.source})[^:\\n]*:[ \\t]*(?:\\n|$)`, 'i').test(text);
   // E-hailing: "e-hailing: no" or "daily" means no annual cover.
-  if (/e[\s-]?hailing|private\s*hire|grab\b/i.test(text)) {
+  if (/e[\s-]?hailing|private\s*hire|grab\b/i.test(text) && !blank(/e[\s-]?hailing/)) {
     const no = /e[\s-]?hailing\s*[:\-]?\s*(no|tidak|x)\b/i.test(text);
     if (!no) {
       out.cover.addons.ehailing = true;
@@ -77,12 +79,12 @@ export function parseCustomerMessage(raw) {
       out.found.push(`e-hailing (${out.cover.ehailingPeriod})`);
     }
   }
-  if (/wind\s*screen|cermin/i.test(text) && !/wind\s*screen\s*[:\-]?\s*(no|tidak)\b/i.test(text)) {
+  if (/wind\s*screen|cermin/i.test(text) && !/wind\s*screen\s*[:\-]?\s*(no|tidak)\b/i.test(text) && !blank(/wind\s*screen/)) {
     out.cover.addons.windscreen = true; out.found.push('windscreen');
     const ws = /wind\s*screen[^\n\d]*(?:rm)?\s*([1-9][\d,]{2,5})/i.exec(text)?.[1];
     if (ws) out.cover.windscreenSI = Number(ws.replace(/,/g, ''));
   }
-  if (/special\s*perils?|flood|banjir/i.test(text) && !/(special\s*perils?|flood|banjir)\s*[:\-]?\s*(no|tidak)\b/i.test(text)) { out.cover.addons.specialPerils = true; out.found.push('special perils'); }
+  if (/special\s*perils?|flood|banjir/i.test(text) && !/(special\s*perils?|flood|banjir)\s*[:\-]?\s*(no|tidak)\b/i.test(text) && !blank(/special\s*perils?|flood|banjir/)) { out.cover.addons.specialPerils = true; out.found.push('special perils'); }
 
   const model = /(?:car\s*model|model\s*kereta|model)(?:\s*(?:&|and|dan)\s*(?:year|tahun))?[:\s]*([^\r\n]+)/i.exec(text)?.[1];
   const year = /\b((?:19|20)\d{2})\b/.exec(model || '')?.[1] || /(?:year|tahun)(?:\s*(?:make|dibuat|of\s*manufacture))?[:\s]*((?:19|20)\d{2})/i.exec(text)?.[1];

@@ -39,7 +39,7 @@ export async function compareStream(req, providers, quoteOne, { lookup, onEvent 
     let r;
     try {
       // Bots on real portals are slower (Allianz takes about a minute).
-      const quote = await withTimeout(quoteOne(p, req), p.mode === 'rpa' ? Math.max(timeoutMs, 180000) : timeoutMs);
+      const quote = await withTimeout(quoteOne(p, req), p.mode === 'rpa' ? Math.max(timeoutMs, p.timeoutMs || 180000) : timeoutMs);
       r = { providerId: p.id, provider: p.name, kind: p.kind, mode: p.mode, ms: Date.now() - t0, ...quote };
       if (r.status === 'quoted' && r.sumInsured === undefined) r.sumInsured = req.cover.sumInsured;
     } catch (e) {
